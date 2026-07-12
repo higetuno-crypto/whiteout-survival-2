@@ -52,3 +52,23 @@ test('walletビューはmoneyと資源を合成する(canUnlockArea連携用)', 
   assert.deepEqual(e.wallet().money, 7);
   assert.deepEqual(e.wallet().log, 2);
 });
+
+test('未知kindのadd/takeは0を返し状態を汚さない', () => {
+  const e = new Economy();
+  assert.equal(e.add('unknown', 5), 0);
+  assert.equal(e.take('unknown', 5), 0);
+  assert.equal(e.totalCarried(), 0);
+  assert.equal(Number.isNaN(e.totalCarried()), false);
+});
+
+test('満杯時のaddは0を返す', () => {
+  const e = new Economy();
+  e.add('log', 10);
+  assert.equal(e.add('rawFish', 1), 0);
+});
+
+test('npcCapacity/speedの初期値', () => {
+  const e = new Economy();
+  assert.equal(e.npcCapacity(), 6);
+  assert.equal(e.speed(), 4.3);
+});

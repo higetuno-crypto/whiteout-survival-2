@@ -13,12 +13,16 @@ export class Economy {
   npcCapacity() { return upgradeValue('npcCap', this.upgrades.npcCap); }
   totalCarried() { return Object.values(this.resources).reduce((a, b) => a + b, 0); }
   add(kind, n) {
+    if (!(kind in this.resources)) return 0;
+    n = Math.max(0, n);
     const room = Math.max(0, this.capacity() - this.totalCarried());
     const got = Math.min(room, n);
     this.resources[kind] += got;
     return got;
   }
   take(kind, n) {
+    if (!(kind in this.resources)) return 0;
+    n = Math.max(0, n);
     const got = Math.min(this.resources[kind], n);
     this.resources[kind] -= got;
     return got;
@@ -34,7 +38,8 @@ export class Economy {
   }
   wallet() { return Object.assign({ money: this.money }, this.resources); }
   canAfford(cost) {
-    return Object.entries(cost).every(([k, v]) => (this.wallet()[k] ?? 0) >= v);
+    const w = this.wallet();
+    return Object.entries(cost).every(([k, v]) => (w[k] ?? 0) >= v);
   }
   pay(cost) {
     for (const [k, v] of Object.entries(cost)) {
