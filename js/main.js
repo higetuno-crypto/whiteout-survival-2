@@ -54,17 +54,28 @@ camera.lookAt(lookPos);
 // ==== 入力(仮想ジョイスティック + WASD) ====
 const input = { x: 0, z: 0 };            // -1..1 の移動方向(ワールドXZ)
 const keys = new Set();
-let touchOrigin = null;
-addEventListener('pointerdown', e => { if (e.target.tagName !== 'BUTTON') touchOrigin = { x: e.clientX, y: e.clientY }; });
+let touchOrigin = null, touchId = null;   // 最初のポインタのIDだけ追跡(マルチタッチで壊れない)
+addEventListener('pointerdown', e => {
+  if (touchId !== null) return;                     // 既に操作中の指がある
+  if (e.target.closest && e.target.closest('button')) return;
+  touchId = e.pointerId;
+  touchOrigin = { x: e.clientX, y: e.clientY };
+});
 addEventListener('pointermove', e => {
-  if (!touchOrigin) return;
+  if (e.pointerId !== touchId || !touchOrigin) return;
   const dx = e.clientX - touchOrigin.x, dy = e.clientY - touchOrigin.y;
   const len = Math.hypot(dx, dy);
   if (len < 8) { input.x = 0; input.z = 0; return; }
   const c = Math.min(1, len / 60);
   input.x = dx / len * c; input.z = dy / len * c;   // 画面上=奥(-Z)なのでdyはそのまま+Z
 });
-addEventListener('pointerup', () => { touchOrigin = null; input.x = 0; input.z = 0; });
+function endTouch(e) {
+  if (e && e.pointerId !== undefined && e.pointerId !== touchId) return;
+  touchId = null; touchOrigin = null; input.x = 0; input.z = 0;
+}
+addEventListener('pointerup', endTouch);
+addEventListener('pointercancel', endTouch);   // 通知バナー/コントロールセンター対策(iOS Safari)
+addEventListener('blur', () => endTouch());    // 画面外リリース対策(PC)
 addEventListener('keydown', e => keys.add(e.key.toLowerCase()));
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 let keyActive = false;
@@ -84,21 +95,24 @@ function pollKeys() {
 
 const clock = new THREE.Clock();
 let walkPhase = 0;
+const _camTgt = new THREE.Vector3(), _lookTgt = new THREE.Vector3(); // 毎フレームのVector3生成を回避
 function step(dt) {
   pollKeys();
   const mv = Math.hypot(input.x, input.z);
   const moving = mv > 0.01;
   if (moving) {
-    player.root.position.x += input.x * eco.speed() * dt;
-    player.root.position.z += input.z * eco.speed() * dt;
+    const speed = eco.speed();
+    player.root.position.x += input.x * speed * dt;
+    player.root.position.z += input.z * speed * dt;
     faceAngle(player.root, Math.atan2(input.x, input.z), dt, 11);
     walkPhase += dt * 11;
   }
   animateWalk(player, walkPhase, moving, dt);
   // カメラ追従(proto-a 608-612行と同じlerp)
-  const camTgt = player.root.position.clone().add(CAM_OFF);
-  camera.position.lerp(camTgt, 1 - Math.exp(-3.5 * dt));
-  lookPos.lerp(new THREE.Vector3(player.root.position.x, 1.2, player.root.position.z), 1 - Math.exp(-4 * dt));
+  _camTgt.copy(player.root.position).add(CAM_OFF);
+  camera.position.lerp(_camTgt, 1 - Math.exp(-3.5 * dt));
+  _lookTgt.set(player.root.position.x, 1.2, player.root.position.z);
+  lookPos.lerp(_lookTgt, 1 - Math.exp(-4 * dt));
   camera.lookAt(lookPos);
 }
 function loop() {
