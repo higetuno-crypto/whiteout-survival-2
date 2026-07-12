@@ -1,0 +1,45 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { AREAS, FACILITIES, canUnlockArea, sanitizeUnlocked, RESOURCES, PRICES } from '../js/data.js';
+
+test('エリアは7つ、先頭はcampでコストなし', () => {
+  assert.equal(AREAS.length, 7);
+  assert.equal(AREAS[0].id, 'camp');
+  assert.deepEqual(AREAS[0].cost, {});
+});
+
+test('canUnlockArea: 支払い可能なら ok', () => {
+  const r = canUnlockArea('lake', ['camp'], { money: 150, log: 0 });
+  assert.equal(r.ok, true);
+});
+
+test('canUnlockArea: 資金不足なら不足分を返す', () => {
+  const r = canUnlockArea('lake', ['camp'], { money: 30, log: 0 });
+  assert.equal(r.ok, false);
+  assert.equal(r.missing.money, 70);
+});
+
+test('canUnlockArea: 解錠済み・未知IDは ok=false', () => {
+  assert.equal(canUnlockArea('camp', ['camp'], { money: 9999, log: 9999 }).ok, false);
+  assert.equal(canUnlockArea('mars', ['camp'], { money: 9999, log: 9999 }).ok, false);
+});
+
+test('sanitizeUnlocked: 未知エリアを捨て、campを必ず含む(前方互換)', () => {
+  assert.deepEqual(sanitizeUnlocked(['lake', 'oldArea9', 'camp']), ['camp', 'lake']);
+  assert.deepEqual(sanitizeUnlocked([]), ['camp']);
+});
+
+test('全施設は実在エリアに属し、丸太コストを持つ', () => {
+  const ids = new Set(AREAS.map(a => a.id));
+  for (const f of FACILITIES) {
+    assert.ok(ids.has(f.areaId), f.id);
+    assert.ok(f.costLogs > 0 || f.kind === 'unlockPad', f.id);
+  }
+});
+
+test('価格表: 加工するほど高い', () => {
+  assert.ok(PRICES.cookedFish > PRICES.rawFish);
+  assert.ok(PRICES.plank > PRICES.log);
+  assert.ok(PRICES.goods > PRICES.plank);
+  assert.ok(RESOURCES.log.emoji.length > 0);
+});

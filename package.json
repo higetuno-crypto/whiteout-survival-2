@@ -1,1 +1,1 @@
-{ "name": "whiteout-survival-2", "private": true, "type": "module" }
+{ "name": "whiteout-survival-2", "private": true, "type": "module", "scripts": { "test": "node --test" } }
