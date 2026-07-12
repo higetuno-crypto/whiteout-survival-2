@@ -46,3 +46,28 @@ test('壊れたJSONは消さずBACKUP_KEYへ退避して新規開始', () => {
   assert.deepEqual(save, defaultSave());
   assert.equal(s.getItem(BACKUP_KEY), '{broken!!');
 });
+
+test('型破損フィールドはデフォルトに矯正され起動可能(corrupted=falseのまま)', () => {
+  const raw = { version: 1, money: 'abc', moneyTower: null, resources: { log: 'x' }, buildProgress: [1, 2] };
+  const s = memStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+  const { save, corrupted } = load(s);
+  assert.equal(corrupted, false);
+  assert.equal(save.money, 0);
+  assert.equal(save.moneyTower, 0);
+  assert.equal(save.resources.log, 0);
+  assert.deepEqual(save.buildProgress, {});
+});
+
+test('npcsの不正roleはフィルタされる', () => {
+  const raw = { version: 1, npcs: [{ role: 'lumber' }, { role: 'hacker' }, null, { role: 'fisher' }] };
+  const s = memStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+  assert.deepEqual(load(s).save.npcs, [{ role: 'lumber' }, { role: 'fisher' }]);
+});
+
+test('npcs/moneyTowerを含む往復', () => {
+  const s = memStorage();
+  const a = defaultSave();
+  a.npcs.push({ role: 'fisher' }); a.moneyTower = 55;
+  persist(s, a);
+  assert.deepEqual(load(s).save, a);
+});

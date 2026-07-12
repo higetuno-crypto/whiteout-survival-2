@@ -25,8 +25,14 @@ function migrate(raw) {
   out.resources = Object.assign(defaultSave().resources, raw.resources ?? {});
   out.upgrades = Object.assign(defaultSave().upgrades, raw.upgrades ?? {});
   out.unlockedAreas = sanitizeUnlocked(raw.unlockedAreas ?? []);
-  out.buildProgress = raw.buildProgress ?? {};
   out.npcs = Array.isArray(raw.npcs) ? raw.npcs.filter(n => n && (n.role === 'lumber' || n.role === 'fisher')) : [];
+  // 型サニタイズ: 手編集や部分破損で「起動はするが状態破損」になるのを防ぐ
+  const num = (v, fb) => (Number.isFinite(v) ? v : fb);
+  out.money = num(out.money, 0);
+  out.moneyTower = num(out.moneyTower, 0);
+  for (const k of Object.keys(out.resources)) out.resources[k] = num(out.resources[k], 0);
+  for (const k of Object.keys(out.upgrades)) out.upgrades[k] = num(out.upgrades[k], 0);
+  if (!out.buildProgress || typeof out.buildProgress !== 'object' || Array.isArray(out.buildProgress)) out.buildProgress = {};
   return out;
 }
 
