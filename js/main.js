@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { createRenderer, lambert } from './render.js';
 import { Economy } from './economy.js';
-import { makeCharacter, animateWalk, faceAngle, SANTA_COLORS } from './entities.js';
+import { makeCharacter, animateWalk, faceAngle, SANTA_COLORS, StackCarrier } from './entities.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -45,6 +45,9 @@ const player = makeCharacter(SANTA_COLORS);
 player.root.position.set(0, 0, 2);
 scene.add(player.root);
 
+// 背中スタック(見た目のみ。内部数の真実はeco.resources)
+const carrier = new StackCarrier(player.root);
+
 // カメラ初期化(proto-a 51行 + 412-415行と同様)
 const CAM_OFF = new THREE.Vector3(0, 20, 12); // 見下ろし約59度
 const lookPos = player.root.position.clone().setY(1.2);
@@ -75,7 +78,7 @@ function endTouch(e) {
 }
 addEventListener('pointerup', endTouch);
 addEventListener('pointercancel', endTouch);   // 通知バナー/コントロールセンター対策(iOS Safari)
-addEventListener('blur', () => endTouch());    // 画面外リリース対策(PC)
+addEventListener('blur', () => { endTouch(); keys.clear(); });  // 画面外リリース対策(PC)。keysも消さないとWキー押下中のフォーカス喪失でkeyupを取り逃し歩き続ける
 addEventListener('keydown', e => keys.add(e.key.toLowerCase()));
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 let keyActive = false;
@@ -108,6 +111,8 @@ function step(dt) {
     walkPhase += dt * 11;
   }
   animateWalk(player, walkPhase, moving, dt);
+  carrier.syncTo(eco.resources);
+  carrier.update(dt, player.root, walkPhase, moving);
   // カメラ追従(proto-a 608-612行と同じlerp)
   _camTgt.copy(player.root.position).add(CAM_OFF);
   camera.position.lerp(_camTgt, 1 - Math.exp(-3.5 * dt));
@@ -123,6 +128,10 @@ function loop() {
 loop(); // 同期の初回実行で、非表示タブでも初回1フレームは必ず出る
 
 if (DEBUG) {
-  window.__game = { step, scene, camera, renderer, player, input, economy: eco };
+  window.__game = { step, scene, camera, renderer, player, input, economy: eco, carrier };
+  window.__game.cheat = {
+    addResource: (k, n) => { eco.resources[k] += n; },   // 容量無視のチート(検証用)
+    addMoney: n => { eco.money += n; },
+  };
   document.getElementById('debug').style.display = 'flex';
 }
