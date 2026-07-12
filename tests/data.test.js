@@ -24,9 +24,20 @@ test('canUnlockArea: 解錠済み・未知IDは ok=false', () => {
   assert.equal(canUnlockArea('mars', ['camp'], { money: 9999, log: 9999 }).ok, false);
 });
 
+test('canUnlockArea: 複合コスト(金+丸太)の不足分', () => {
+  const r = canUnlockArea('forest', ['camp'], { money: 250, log: 5 });
+  assert.equal(r.ok, false);
+  assert.deepEqual(r.missing, { log: 15 });
+});
+
 test('sanitizeUnlocked: 未知エリアを捨て、campを必ず含む(前方互換)', () => {
   assert.deepEqual(sanitizeUnlocked(['lake', 'oldArea9', 'camp']), ['camp', 'lake']);
   assert.deepEqual(sanitizeUnlocked([]), ['camp']);
+});
+
+test('sanitizeUnlocked: 非配列入力でもcampのみを返す', () => {
+  assert.deepEqual(sanitizeUnlocked(undefined), ['camp']);
+  assert.deepEqual(sanitizeUnlocked(null), ['camp']);
 });
 
 test('全施設は実在エリアに属し、丸太コストを持つ', () => {

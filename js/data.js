@@ -12,7 +12,7 @@ export const RESOURCES = {
 export const PRICES = { log: 3, rawFish: 5, cookedFish: 12, plank: 15, goods: 40 };
 export const MARKET_MULT = 1.5; // 大市場解錠後の売値倍率
 
-// pos/size はワールド座標(m)。campを原点に隣接配置
+// cx/cz(中心)・hw/hd(半幅/半奥行)はワールド座標(m)。campを原点に隣接配置
 export const AREAS = [
   { id: 'camp',    name: 'スタートキャンプ', cost: {},                      cx: 0,   cz: 0,   hw: 13, hd: 10 },
   { id: 'lake',    name: '湖',               cost: { money: 100 },          cx: 0,   cz: -26, hw: 13, hd: 10 },
@@ -63,6 +63,6 @@ export function canUnlockArea(areaId, unlockedIds, wallet) {
 export function sanitizeUnlocked(ids) {
   const valid = new Set(AREAS.map(a => a.id));
   const out = ['camp'];
-  for (const id of ids) if (valid.has(id) && !out.includes(id)) out.push(id);
+  for (const id of ids ?? []) if (valid.has(id) && !out.includes(id)) out.push(id);
   return out;
 }
