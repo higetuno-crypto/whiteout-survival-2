@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createRenderer, lambert } from './render.js';
 import { Economy } from './economy.js';
 import { makeCharacter, animateWalk, faceAngle, SANTA_COLORS, StackCarrier } from './entities.js';
+import { World } from './world.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -47,6 +48,11 @@ scene.add(player.root);
 
 // 背中スタック(見た目のみ。内部数の真実はeco.resources)
 const carrier = new StackCarrier(player.root);
+
+// ワールド(エリアごとのコンテンツ)。campエリア(cx=0,cz=0)基準に木を2本配置。
+const world = new World(scene);
+world.addTree(-10, -6, 1.0);
+world.addTree(10, -6, 0.85);
 
 // カメラ初期化(proto-a 51行 + 412-415行と同様)
 const CAM_OFF = new THREE.Vector3(0, 20, 12); // 見下ろし約59度
@@ -99,6 +105,10 @@ function pollKeys() {
 const clock = new THREE.Clock();
 let walkPhase = 0;
 const _camTgt = new THREE.Vector3(), _lookTgt = new THREE.Vector3(); // 毎フレームのVector3生成を回避
+
+// 伐採状態(木の近くで立ち止まると自動で丸太を集める)
+let chopTimer = 0, chopAccum = 0, chopping = false;
+
 function step(dt) {
   pollKeys();
   const mv = Math.hypot(input.x, input.z);
@@ -110,7 +120,40 @@ function step(dt) {
     faceAngle(player.root, Math.atan2(input.x, input.z), dt, 11);
     walkPhase += dt * 11;
   }
-  animateWalk(player, walkPhase, moving, dt);
+  if (!chopping) animateWalk(player, walkPhase, moving, dt);
+
+  // 伐採ロジック(半径2.2m以内の木の近くで立ち止まると発動。proto-a 429-451行を移植)
+  const tree = world.nearestTree(player.root.position, 2.2);
+  if (!moving && tree) {
+    chopTimer += dt;
+    chopping = chopTimer > 0.5;
+    if (chopping) {
+      chopAccum += dt;
+      while (chopAccum >= 0.35) {
+        chopAccum -= 0.35;
+        if (eco.add('log', 1) > 0) tree.pulse = 1;
+      }
+      // 伐採ボディバウンス(proto-a 437-442行)
+      const w = chopTimer * (Math.PI * 2 / 0.3);
+      player.bodyGroup.scale.y = 1 - 0.09 * (0.5 + 0.5 * Math.sin(w));
+      player.bodyGroup.scale.x = player.bodyGroup.scale.z = 1 + 0.05 * (0.5 + 0.5 * Math.sin(w));
+      player.bodyGroup.rotation.x = 0.1 + 0.14 * Math.sin(w);
+      player.armL.rotation.x = player.armR.rotation.x = -1.1 + 0.85 * Math.sin(w + 0.6);
+      // 木の揺れ
+      tree.foliage.rotation.z = 0.045 * Math.sin(chopTimer * 46);
+      tree.foliage.rotation.x = 0.032 * Math.sin(chopTimer * 37);
+    }
+  } else {
+    if (chopping) {
+      // 伐採終了: スケール/回転を戻す
+      player.bodyGroup.scale.set(1, 1, 1);
+      player.bodyGroup.rotation.x = 0;
+      for (const t of world.trees) t.foliage.rotation.set(0, 0, 0);
+    }
+    chopTimer = 0; chopAccum = 0; chopping = false;
+  }
+  world.update(dt);
+
   carrier.syncTo(eco.resources);
   carrier.update(dt, player.root, walkPhase, moving);
   // カメラ追従(proto-a 608-612行と同じlerp)
@@ -128,7 +171,7 @@ function loop() {
 loop(); // 同期の初回実行で、非表示タブでも初回1フレームは必ず出る
 
 if (DEBUG) {
-  window.__game = { step, scene, camera, renderer, player, input, economy: eco, carrier };
+  window.__game = { step, scene, camera, renderer, player, input, economy: eco, carrier, world };
   window.__game.cheat = {
     addResource: (k, n) => { eco.resources[k] += n; },   // 容量無視のチート(検証用)
     addMoney: n => { eco.money += n; },
