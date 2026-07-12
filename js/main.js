@@ -67,11 +67,19 @@ addEventListener('pointermove', e => {
 addEventListener('pointerup', () => { touchOrigin = null; input.x = 0; input.z = 0; });
 addEventListener('keydown', e => keys.add(e.key.toLowerCase()));
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+let keyActive = false;
 function pollKeys() {
   let x = 0, z = 0;
   if (keys.has('w')) z -= 1; if (keys.has('s')) z += 1;
   if (keys.has('a')) x -= 1; if (keys.has('d')) x += 1;
-  if (x || z) { const l = Math.hypot(x, z); input.x = x / l; input.z = z / l; }
+  if (x || z) {
+    const l = Math.hypot(x, z);
+    input.x = x / l; input.z = z / l;
+    keyActive = true;
+  } else if (keyActive) {
+    input.x = 0; input.z = 0;   // キーを離した瞬間に一度だけ停止(ジョイスティック入力は消さない)
+    keyActive = false;
+  }
 }
 
 const clock = new THREE.Clock();
