@@ -40,7 +40,7 @@ canvas{display:block}
 <div id="fatal"></div>
 <script>
 // CDN不達の検出: 8秒待ってもmainが起動フラグを立てなければ案内を出す
-setTimeout(() => {
+window.__cdnTimer = setTimeout(() => {
   if (!window.__booted) {
     const f = document.getElementById('fatal');
     f.style.display = 'flex';

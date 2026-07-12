@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { createRenderer, lambert } from './render.js';
 
 window.__booted = true;
-const DEBUG = new URLSearchParams(location.search).has('debug');
+// CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
+clearTimeout(window.__cdnTimer);
+document.getElementById('fatal').style.display = 'none';
+const DEBUG = new URLSearchParams(location.search).get('debug') === '1';
 
 let R;
 try {
@@ -42,8 +45,7 @@ function loop() {
   step(Math.min(clock.getDelta(), 0.05));
   renderer.render(scene, camera);
 }
-loop();
-renderer.render(scene, camera); // 非表示タブでも初回1フレームは必ず出す
+loop(); // 同期の初回実行で、非表示タブでも初回1フレームは必ず出る
 
 if (DEBUG) {
   window.__game = { step, scene, camera, renderer };
