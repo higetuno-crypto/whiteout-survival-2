@@ -33,7 +33,8 @@ export class UI {
       const b = document.createElement('button');
       b.className = 'upg';
       b.style.background = 'linear-gradient(135deg,#4a9ede,#2a6ebe)';
-      b.addEventListener('click', () => this.handlers.onUpgrade?.(key));
+      // 購入後はthrottleを待たず即リフレッシュ(残金・Lv・disabledを即反映)
+      b.addEventListener('click', () => { this.handlers.onUpgrade?.(key); this._refresh(); });
       up.appendChild(b);
       this.upgButtons[key] = b;
     }
