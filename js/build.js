@@ -208,8 +208,32 @@ export class BuildSite {
       case 'fence':    return this._fenceMesh();
       case 'shop':     return this._shopMesh();
       case 'campfire': return this._campfireMesh();
+      case 'bridge':   return this._bridgeMesh();
       default:         return this._signMesh();
     }
+  }
+
+  // 丸太の桟橋。camp と lake の間の雪原ギャップ(ワールド z -16〜-10 付近)を渡す。
+  // 横倒し丸太(円柱をZ回転して軸をXへ=デッキ幅2.2)をz方向に0.3間隔で並べ、両脇に低い縁木。
+  // 側面と木口で色を分けるため、fence と同様に「側面(開端円柱)」と「木口(円)」の2メッシュに結合。
+  _bridgeMesh() {
+    const g = new THREE.Group();
+    const sides = [], caps = [];
+    const halfW = 1.1, r = 0.14;                 // デッキ半幅(丸太長2.2)・半径
+    const zFrom = -3, zTo = 3, step = 0.3;       // ローカルz範囲(サイト z=-14 基準 → ワールド -17..-11)
+    for (let z = zFrom; z <= zTo + 1e-6; z += step) {
+      sides.push(new THREE.CylinderGeometry(r, r, halfW * 2, 8, 1, true).rotateZ(Math.PI / 2).translate(0, r, z));
+      caps.push(new THREE.CircleGeometry(r, 8).rotateY(Math.PI / 2).translate(halfW, r, z));   // +X端
+      caps.push(new THREE.CircleGeometry(r, 8).rotateY(-Math.PI / 2).translate(-halfW, r, z)); // -X端
+    }
+    // 両脇の低い縁木(Z方向に走る細い丸太。閉じた円柱=側面材で結合)
+    const railR = 0.1, railLen = (zTo - zFrom) + 0.6;
+    for (const sx of [-1, 1]) {
+      sides.push(new THREE.CylinderGeometry(railR, railR, railLen, 7).rotateX(Math.PI / 2).translate(sx * halfW, r + 0.16, 0));
+    }
+    g.add(new THREE.Mesh(mergeGeos(sides), lambert(0xb0703c)));   // 側面
+    g.add(new THREE.Mesh(mergeGeos(caps), lambert(0xf3dfae)));    // 木口
+    return g;
   }
 
   // エリア外周の丸太柵(proto-a 158-175行を area の角丸矩形で。mergeGeosで2メッシュに結合)

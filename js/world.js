@@ -4,7 +4,12 @@
 import * as THREE from 'three';
 import { lambert, blobShadow, roundedRectShape } from './render.js';
 import { dashedRect } from './build.js';
+import { createKindMesh } from './entities.js';
 import { AREAS, areAreasAdjacent, RESOURCES } from './data.js';
+
+// 湖の水面(視覚)の中心と半幅/半奥。魚の遊泳範囲・釣りフライトの出発点、
+// および main.js の進入禁止クランプ(この値+0.3マージン)が参照する単一の真実。
+export const LAKE_WATER = { cx: 0, cz: -26, hw: 5.5, hd: 3.5 };
 
 /* ================= ローポリ松の木 ================= */
 export function makeTree(scale) {
@@ -38,11 +43,57 @@ export function makeTree(scale) {
 const AREA_CONTENT = {
   camp:   { trees: [[-10, -6, 1.0], [10, -6, 0.85]] },
   forest: { trees: [[-8, -6, 1.0], [8, -6, 0.9], [-9, 6, 0.95], [8, 6, 0.85], [0, -8, 1.05]] },
-  lake:   { trees: [] }, // 湖: 木なし(水面/泳ぐ魚/釣り場は Step 1 で build 関数を追加)
+  lake:   { trees: [], build: buildLakeContent }, // 湖: 木なし + 水面/泳ぐ魚/釣り場
 };
 const DEFAULT_CONTENT = { trees: [[-9, -6, 0.8]] }; // エントリのないエリアは隅に1本
 
 const DIRT_MAT = lambert(0xb98d5f);
+
+/* ================= 湖のコンテンツ(水面・泳ぐ魚・釣り場) ================= */
+const WATER_MAT = lambert(0x63b1e0);
+// 泳ぐ魚: 扁平球(クマノミ風オレンジ)。scaleはジオメトリに焼き込み、rotation.yで進行方向を向ける。
+const FISH_SWIM_GEO = new THREE.SphereGeometry(0.22, 8, 6).scale(1.4, 0.5, 0.7);
+const FISH_SWIM_MAT = lambert(0xe8834a);
+// 水しぶきの白い小球(釣り成功時に3個飛び散る)
+const SPLASH_GEO = new THREE.SphereGeometry(0.08, 6, 5);
+const SPLASH_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
+// 釣りスポットのマーカー(水平の白リング)
+const FISHSPOT_GEO = new THREE.TorusGeometry(0.55, 0.06, 6, 18).rotateX(-Math.PI / 2);
+const FISHSPOT_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+
+// lake エリアの追加コンテンツ。buildAreaTerrain から content.build として呼ばれる。
+function buildLakeContent(world, area, animated) {
+  // 水面: 角丸Plane。dirt(y=0.02)の上 y=0.04 に置く。ShapeGeometry は原点中心なので湖中心へ。
+  const waterGeo = new THREE.ShapeGeometry(roundedRectShape(LAKE_WATER.hw, LAKE_WATER.hd, 1.5), 10);
+  waterGeo.rotateX(-Math.PI / 2);
+  const water = new THREE.Mesh(waterGeo, WATER_MAT);
+  water.position.set(LAKE_WATER.cx, 0.04, LAKE_WATER.cz);
+  world.scene.add(water);
+  if (animated) world._animateIn(water, 1);
+
+  // 泳ぐ魚 8匹。各自ランダムな中心角・半径・角速度でゆっくり円運動(水面内に収まる範囲)。
+  world.lakeFish = [];
+  for (let i = 0; i < 8; i++) {
+    const mesh = new THREE.Mesh(FISH_SWIM_GEO, FISH_SWIM_MAT);
+    mesh.position.set(LAKE_WATER.cx, 0.1, LAKE_WATER.cz);
+    world.scene.add(mesh);
+    world.lakeFish.push({
+      mesh,
+      theta: Math.random() * Math.PI * 2,
+      radius: 0.6 + Math.random() * 2.0,                       // 0.6..2.6(hd=3.5内)
+      speed: (0.25 + Math.random() * 0.4) * (Math.random() < 0.5 ? -1 : 1), // rad/s
+    });
+    if (animated) world._animateIn(mesh, 1);
+  }
+
+  // 釣りスポット(湖南岸の土の上)。main.js の ProximityAction がここへの近接を見る。
+  world.fishSpot = { x: 0, z: -21.4 };
+  const marker = new THREE.Mesh(FISHSPOT_GEO, FISHSPOT_MAT);
+  marker.position.set(world.fishSpot.x, 0.05, world.fishSpot.z);
+  marker.renderOrder = 3;
+  world.scene.add(marker);
+  if (animated) world._animateIn(marker, 1);
+}
 
 // 解放演出の丸太フライト用ジオメトリ/マテリアル(T8納品と同形。モジュールで1回だけ生成)
 const PAD_LOG_GEO = new THREE.CylinderGeometry(0.16, 0.16, 1.8, 9).rotateZ(Math.PI / 2);
@@ -93,6 +144,10 @@ export class World {
     this.reveals = [];            // {obj, target, t} easeOutBack で 0→target に出現
     this.padRetires = [];         // {group, t} 消えるパッドのシュリンク
     this.logFlights = [];         // {mesh, from, to, t} 解放演出の丸太フライト
+    this.lakeFish = [];           // {mesh, theta, radius, speed} 湖を泳ぐ魚
+    this.fishFlights = [];        // {mesh, from, to, t} 釣り成功時の魚フライト(水面→背中)
+    this.splashes = [];           // {drops:[{mesh,vx,vy,vz}], mat, t} 着水の水しぶき
+    this.fishSpot = null;         // {x, z} 釣りスポット(lake解錠時にセット)
   }
 
   addTree(x, z, s) {
@@ -193,7 +248,68 @@ export class World {
     }
   }
 
+  // 釣り成功時: 水面のランダム点から target(プレイヤーの背中)へ魚を放物線で飛ばし(0.5s)、
+  // その着水点に白い小球3個の水しぶき(0.4s)を出す。数の真実は eco 側(これは演出のみ)。
+  spawnFishCatch(target) {
+    const fx = LAKE_WATER.cx + (Math.random() * 2 - 1) * (LAKE_WATER.hw - 1.0);
+    const fz = LAKE_WATER.cz + (Math.random() * 2 - 1) * (LAKE_WATER.hd - 0.7);
+    const from = new THREE.Vector3(fx, 0.2, fz);
+    const mesh = createKindMesh('rawFish'); // 背中に載る生魚と同じ見た目でフライト
+    mesh.position.copy(from);
+    this.scene.add(mesh);
+    this.fishFlights.push({ mesh, from: from.clone(), to: target.clone(), t: 0 });
+
+    // 水しぶき: 白い小球3個が着水点から放射状に飛び散って落下・フェード
+    const mat = SPLASH_MAT.clone();
+    const drops = [];
+    for (let i = 0; i < 3; i++) {
+      const d = new THREE.Mesh(SPLASH_GEO, mat);
+      d.position.set(fx, 0.15, fz);
+      const a = Math.random() * Math.PI * 2;
+      const sp = 1.2 + Math.random() * 0.8;
+      drops.push({ mesh: d, vx: Math.cos(a) * sp, vz: Math.sin(a) * sp, vy: 1.8 + Math.random() * 0.6 });
+      this.scene.add(d);
+    }
+    this.splashes.push({ drops, mat, t: 0 });
+  }
+
   update(dt) {
+    // 泳ぐ魚: 円運動 + 進行方向へ向ける
+    for (const f of this.lakeFish) {
+      f.theta += f.speed * dt;
+      f.mesh.position.set(
+        LAKE_WATER.cx + Math.cos(f.theta) * f.radius,
+        0.1,
+        LAKE_WATER.cz + Math.sin(f.theta) * f.radius,
+      );
+      const dir = Math.sign(f.speed) || 1;
+      const vx = -Math.sin(f.theta) * dir, vz = Math.cos(f.theta) * dir; // 接線(進行方向)
+      f.mesh.rotation.y = Math.atan2(-vz, vx); // 長軸(X)を進行方向へ
+    }
+    // 釣りフライト(水面→背中, 0.5s・smoothstep・放物線)
+    for (let i = this.fishFlights.length - 1; i >= 0; i--) {
+      const f = this.fishFlights[i];
+      f.t += dt / 0.5;
+      const p = Math.min(1, f.t);
+      const e = p * p * (3 - 2 * p);
+      f.mesh.position.lerpVectors(f.from, f.to, e);
+      f.mesh.position.y += 2.5 * 4 * e * (1 - e);
+      if (p >= 1) { this.scene.remove(f.mesh); this.fishFlights.splice(i, 1); }
+    }
+    // 水しぶき(0.4s で放射・落下・フェードして消える)
+    for (let i = this.splashes.length - 1; i >= 0; i--) {
+      const s = this.splashes[i];
+      s.t += dt;
+      const p = Math.min(1, s.t / 0.4);
+      for (const d of s.drops) {
+        d.vy -= 9 * dt;
+        d.mesh.position.x += d.vx * dt;
+        d.mesh.position.z += d.vz * dt;
+        d.mesh.position.y = Math.max(0.05, d.mesh.position.y + d.vy * dt);
+      }
+      s.mat.opacity = 1 - p;
+      if (p >= 1) { for (const d of s.drops) this.scene.remove(d.mesh); s.mat.dispose(); this.splashes.splice(i, 1); }
+    }
     // 木のパルス減衰(伐採ヒットで pulse=1 → 揺れて減衰)
     for (const t of this.trees) {
       t.pulse *= Math.exp(-8 * dt);

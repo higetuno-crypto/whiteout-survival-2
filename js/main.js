@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { createRenderer, lambert } from './render.js';
 import { Economy } from './economy.js';
 import { makeCharacter, animateWalk, faceAngle, SANTA_COLORS, StackCarrier } from './entities.js';
-import { World } from './world.js';
+import { World, LAKE_WATER } from './world.js';
 import { BuildManager } from './build.js';
 import { ShopSystem } from './shop.js';
 import { ProximityAction } from './proximity.js';
@@ -211,6 +211,25 @@ function stopChopVisual() {
   for (const t of world.trees) t.foliage.rotation.set(0, 0, 0);
 }
 
+// 釣り(釣りスポットで立ち止まると自動で生魚を集める)。伐採より低頻度(1.2s間隔)。
+const fishAction = new ProximityAction({ radius: 2.0, startDelay: 0.5, interval: 1.2, requireStill: true });
+let fishing = false;
+const _backPos = new THREE.Vector3(); // 釣りフライトの着地目標(毎フレームのVector3生成を回避)
+
+// 湖エリアの土地rect(島の進入ゲート用)。lake は格子固定なので起動時に確定。
+const LAKE_AREA = AREAS.find(a => a.id === 'lake');
+
+// 矩形(中心cx,cz・半幅hx・半奥hz)内に pos があれば、最小貫入軸に沿って境界の少し外へ
+// 押し出す。軸別(min penetration)なので壁ずり移動になる。中心一致時は +方向へ寄せる。
+const CLAMP_EPS = 0.05;
+function pushOutOfRect(pos, cx, cz, hx, hz) {
+  const dx = pos.x - cx, dz = pos.z - cz;
+  if (Math.abs(dx) >= hx || Math.abs(dz) >= hz) return; // rect外なら何もしない
+  const penX = hx - Math.abs(dx), penZ = hz - Math.abs(dz);
+  if (penX < penZ) pos.x = cx + (dx >= 0 ? 1 : -1) * (hx + CLAMP_EPS);
+  else             pos.z = cz + (dz >= 0 ? 1 : -1) * (hz + CLAMP_EPS);
+}
+
 function step(dt) {
   pollKeys();
   const mv = Math.hypot(input.x, input.z);
@@ -222,7 +241,16 @@ function step(dt) {
     faceAngle(player.root, Math.atan2(input.x, input.z), dt, 11);
     walkPhase += dt * 11;
   }
-  if (!chopping) animateWalk(player, walkPhase, moving, dt);
+
+  // --- 湖まわりの進入制限(移動適用の直後) ---
+  // 1) lake島は橋(bridge_lake)完成まで進入不可: lake土rect全体から押し出す。
+  if (LAKE_AREA && !buildMgr.sites.get('bridge_lake')?.completed) {
+    pushOutOfRect(player.root.position, LAKE_AREA.cx, LAKE_AREA.cz, LAKE_AREA.hw, LAKE_AREA.hd);
+  }
+  // 2) 水面は常に進入不可: 視覚半幅+0.3マージンの水rectから押し出す。
+  pushOutOfRect(player.root.position, LAKE_WATER.cx, LAKE_WATER.cz, LAKE_WATER.hw + 0.3, LAKE_WATER.hd + 0.3);
+
+  if (!chopping && !fishing) animateWalk(player, walkPhase, moving, dt);
 
   // 伐採ロジック(半径2.2m以内の木の近くで立ち止まると発動。proto-a 429-451行を移植)
   const tree = moving ? null : world.nearestTree(player.root.position, chop.radius); // !moving時のみ探索
@@ -247,6 +275,29 @@ function step(dt) {
     if (chopping) stopChopVisual(); // 伐採終了(移動・範囲外・満杯)でスケール/回転を戻す
     chopping = false;
   }
+
+  // 釣りロジック(釣りスポット半径2m内で立ち止まると 1.2秒ごとに生魚を1匹。要静止)。
+  let atFishSpot = false;
+  if (world.fishSpot) {
+    const fd = Math.hypot(player.root.position.x - world.fishSpot.x, player.root.position.z - world.fishSpot.z);
+    atFishSpot = fd <= fishAction.radius;
+  }
+  const fishTicks = fishAction.update(atFishSpot, !moving, dt);
+  for (let i = 0; i < fishTicks; i++) {
+    if (eco.add('rawFish', 1) > 0) {                        // 容量があるときだけ釣れる
+      _backPos.set(player.root.position.x, 1.8, player.root.position.z); // 背中付近を狙う
+      world.spawnFishCatch(_backPos);                       // 水面→背中フライト + 水しぶき
+    }
+  }
+  // 釣り中の演出: 竿なし・体を軽く揺らす(満杯時は演出停止=働いても増えない見た目を防ぐ)。
+  if (fishAction.active && atFishSpot && !full) {
+    fishing = true;
+    player.bodyGroup.rotation.x = 0.05 * Math.sin(fishAction.timer * 3);
+  } else {
+    if (fishing) player.bodyGroup.rotation.x = 0; // 釣り終了で前傾を戻す
+    fishing = false;
+  }
+
   world.update(dt);
 
   // エリア解錠: 未解錠パッドに半径2m内で1秒静止すると解錠判定(requireStill: 移動中は蓄積しない)。
