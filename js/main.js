@@ -3,6 +3,7 @@ import { createRenderer, lambert } from './render.js';
 import { Economy } from './economy.js';
 import { makeCharacter, animateWalk, faceAngle, SANTA_COLORS, StackCarrier } from './entities.js';
 import { World } from './world.js';
+import { BuildManager } from './build.js';
 import { ProximityAction } from './proximity.js';
 
 window.__booted = true;
@@ -54,6 +55,10 @@ const carrier = new StackCarrier(player.root);
 const world = new World(scene);
 world.addTree(-10, -6, 1.0);
 world.addTree(10, -6, 0.85);
+
+// 建設予定地(campの3施設: fence_camp/shop_camp/fire_camp)
+const buildMgr = new BuildManager(scene, world, eco);
+buildMgr.spawnSitesForArea('camp');
 
 // カメラ初期化(proto-a 51行 + 412-415行と同様)
 const CAM_OFF = new THREE.Vector3(0, 20, 12); // 見下ろし約59度
@@ -157,6 +162,8 @@ function step(dt) {
 
   carrier.syncTo(eco.resources);
   carrier.update(dt, player.root, walkPhase, moving);
+  // 納品(背中の丸太を建設予定地へ放物線で運ぶ)。eco.take→popVisual→deliverOne の順。
+  buildMgr.update(dt, player.root.position, eco, carrier);
   // カメラ追従(proto-a 608-612行と同じlerp)
   _camTgt.copy(player.root.position).add(CAM_OFF);
   camera.position.lerp(_camTgt, 1 - Math.exp(-3.5 * dt));
@@ -172,10 +179,11 @@ function loop() {
 loop(); // 同期の初回実行で、非表示タブでも初回1フレームは必ず出る
 
 if (DEBUG) {
-  window.__game = { step, scene, camera, renderer, player, input, economy: eco, carrier, world };
+  window.__game = { step, scene, camera, renderer, player, input, economy: eco, carrier, world, build: buildMgr };
   window.__game.cheat = {
     addResource: (k, n) => { eco.resources[k] += n; },   // 容量無視のチート(検証用)
     addMoney: n => { eco.money += n; },
+    completeSite: id => { const s = buildMgr.sites.get(id); if (s) s.forceComplete(); }, // 予定地を即完成
   };
   document.getElementById('debug').style.display = 'flex';
 }

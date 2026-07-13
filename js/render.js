@@ -4,6 +4,21 @@ export function lambert(color, extra = {}) {
   return new THREE.MeshLambertMaterial(Object.assign({ color, flatShading: true }, extra));
 }
 
+// 角丸矩形Shape(proto-a 135-147行)。柵の外周やエリア地面の外形に使う共有ヘルパ。
+export function roundedRectShape(hw, hd, r) {
+  const s = new THREE.Shape();
+  s.moveTo(-hw + r, -hd);
+  s.lineTo(hw - r, -hd);
+  s.absarc(hw - r, -hd + r, r, -Math.PI / 2, 0);
+  s.lineTo(hw, hd - r);
+  s.absarc(hw - r, hd - r, r, 0, Math.PI / 2);
+  s.lineTo(-hw + r, hd);
+  s.absarc(-hw + r, hd - r, r, Math.PI / 2, Math.PI);
+  s.lineTo(-hw, -hd + r);
+  s.absarc(-hw + r, -hd + r, r, Math.PI, Math.PI * 1.5);
+  return s;
+}
+
 // インデックス付きBufferGeometryを1つに結合（柵などのドローコール削減 = モバイル軽量化）
 export function mergeGeos(list, withUV = false) {
   let vCount = 0, iCount = 0;
