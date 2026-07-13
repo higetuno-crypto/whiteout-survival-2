@@ -7,6 +7,7 @@ import { BuildManager } from './build.js';
 import { ShopSystem } from './shop.js';
 import { ProximityAction } from './proximity.js';
 import { UI } from './ui.js';
+import { load, persist } from './save.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -43,7 +44,17 @@ const { renderer, scene, camera } = R;
   scene.add(new THREE.Mesh(snowGeo, lambert(0xe8edf5)));
 }
 
+// ==== セーブのロード(シーン構築の前に読む) ====
+const { save, corrupted } = load(localStorage);
+
 const eco = new Economy();
+// 保存状態を適用(resources/upgradesは新キー補完済みのsaveを重ねる)
+eco.money = save.money;
+eco.resources = { ...eco.resources, ...save.resources };
+eco.upgrades = { ...eco.upgrades, ...save.upgrades };
+// unlockedAreas/npcsは現状 camp のみ/空。適用はT11(エリア解放)/T14(NPC)。今は保持のみ。
+let unlockedAreas = save.unlockedAreas;
+let savedNpcs = save.npcs;
 
 // プレイヤー(2頭身サンタ)
 const player = makeCharacter(SANTA_COLORS);
@@ -58,15 +69,38 @@ const world = new World(scene);
 world.addTree(-10, -6, 1.0);
 world.addTree(10, -6, 0.85);
 
-// 建設予定地(campの3施設: fence_camp/shop_camp/fire_camp)
+// 建設予定地(campの3施設: fence_camp/shop_camp/fire_camp)。buildProgressで進捗を復元。
 const buildMgr = new BuildManager(scene, world, eco);
-buildMgr.spawnSitesForArea('camp');
+buildMgr.spawnSitesForArea('camp', save.buildProgress);
 
-// 売店の自動売却 + マネータワー(T9のロジックはShopSystemへ抽出済み)
+// 売店の自動売却 + マネータワー(T9のロジックはShopSystemへ抽出済み)。未回収金を復元。
 const shopSystem = new ShopSystem(scene, eco);
+shopSystem.restore(save.moneyTower);
 
-// HUD + アップグレードUI + トースト
-const ui = new UI(eco, { onUpgrade: key => { if (eco.buyUpgrade(key)) ui.toast('強化した!'); } });
+// HUD + アップグレードUI + トースト + 手動セーブ
+const ui = new UI(eco, {
+  onUpgrade: key => { if (eco.buyUpgrade(key)) ui.toast('強化した!'); },
+  onSave: () => { saveNow(); ui.toast('セーブしました'); },
+});
+// 破損セーブ検出時の通知(UI生成後=toastが動くようになってから)
+if (corrupted) ui.toast('セーブデータが壊れていたため退避して新しく始めます');
+
+// ==== セーブ書き出しの一元化 ====
+function collectSave() {
+  return {
+    version: 1,
+    money: eco.money,
+    resources: { ...eco.resources },
+    upgrades: { ...eco.upgrades },
+    unlockedAreas,
+    buildProgress: buildMgr.serialize(),
+    npcs: savedNpcs,
+    moneyTower: shopSystem.serialize(),
+  };
+}
+const saveNow = () => persist(localStorage, collectSave());
+setInterval(saveNow, 10000);                 // 10秒ごとの自動保存
+document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); }); // 離脱時に保存
 
 // カメラ初期化(proto-a 51行 + 412-415行と同様)
 const CAM_OFF = new THREE.Vector3(0, 20, 12); // 見下ろし約59度
@@ -196,6 +230,9 @@ if (DEBUG) {
     step, scene, camera, renderer, player, input, economy: eco, carrier, world, build: buildMgr, ui,
     shop: shopSystem,
     moneyTower: () => shopSystem.moneyTower,   // getter関数(未回収金の現在値を返す)
+    save,                                       // ロード時のスナップショット
+    saveNow,                                    // 即時保存
+    collectSave,                                // 現在状態のセーブオブジェクトを生成
   };
   window.__game.cheat = {
     addResource: (k, n) => { eco.resources[k] += n; },   // 容量無視のチート(検証用)

@@ -39,6 +39,14 @@ export class UI {
       this.upgButtons[key] = b;
     }
 
+    // ---- 💾 手動セーブボタン(#upgrades の一番下) ----
+    this.saveButton = document.createElement('button');
+    this.saveButton.className = 'upg';
+    this.saveButton.style.background = 'linear-gradient(135deg,#7a8aa0,#54637a)';
+    this.saveButton.textContent = '💾 セーブ';
+    this.saveButton.addEventListener('click', () => this.handlers.onSave?.());
+    up.appendChild(this.saveButton);
+
     this.toastEl = document.getElementById('toast');
     this._refresh(); // 初期表示(💰 0)
   }
