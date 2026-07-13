@@ -64,3 +64,16 @@ test('価格表: 加工するほど高い', () => {
   assert.ok(PRICES.goods > PRICES.plank);
   assert.ok(RESOURCES.log.emoji.length > 0);
 });
+
+test('全エリアはcampから隣接経路で到達可能(解錠可能性の保証)', () => {
+  const reached = new Set(['camp']);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const a of AREAS) {
+      if (reached.has(a.id)) continue;
+      if (AREAS.some(b => reached.has(b.id) && areAreasAdjacent(a, b))) { reached.add(a.id); grew = true; }
+    }
+  }
+  assert.equal(reached.size, AREAS.length);
+});

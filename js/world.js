@@ -29,13 +29,18 @@ export function makeTree(scale) {
   return { group: g, foliage };
 }
 
-/* ================= エリア別の植樹定義(中心からのローカル座標 [lx, lz, scale]) ================= */
-// camp は T7 で main.js が植えていた2本の位置をそのまま維持(このメソッドへ移設)。
-const AREA_TREES = {
-  camp:   [[-10, -6, 1.0], [10, -6, 0.85]],
-  forest: [[-8, -6, 1.0], [8, -6, 0.9], [-9, 6, 0.95], [8, 6, 0.85], [0, -8, 1.05]],
+/* ================= エリア別コンテンツ・レジストリ =================
+ * エリアID → { trees, build } のマップ。buildAreaTerrain が土(共通)を敷いた上で、
+ *   trees: 植樹定義 [[lx, lz, scale], ...](中心からのローカル座標。省略/空なら植えない)
+ *   build(world, area, animated): 追加コンテンツ(水面・魚・釣り場など)を生成する任意関数
+ * を呼び出す。新エリアの中身はここに1エントリ足すだけで増やせる(木以外も扱える一般化)。
+ * camp/forest は T7 の植樹をそのまま維持。lake は木を植えない(水面に木が生えないように)。 */
+const AREA_CONTENT = {
+  camp:   { trees: [[-10, -6, 1.0], [10, -6, 0.85]] },
+  forest: { trees: [[-8, -6, 1.0], [8, -6, 0.9], [-9, 6, 0.95], [8, 6, 0.85], [0, -8, 1.05]] },
+  lake:   { trees: [] }, // 湖: 木なし(水面/泳ぐ魚/釣り場は Step 1 で build 関数を追加)
 };
-const DEFAULT_AREA_TREE = [[-9, -6, 0.8]]; // その他エリアは隅に1本
+const DEFAULT_CONTENT = { trees: [[-9, -6, 0.8]] }; // エントリのないエリアは隅に1本
 
 const DIRT_MAT = lambert(0xb98d5f);
 
@@ -118,12 +123,17 @@ export class World {
     this.scene.add(dirt);
     if (animated) this._animateIn(dirt, 1);
 
-    // 木を植える(中心からのローカル座標 → ワールド座標)
-    const defs = AREA_TREES[area.id] ?? DEFAULT_AREA_TREE;
-    for (const [lx, lz, s] of defs) {
+    // レジストリからこのエリアのコンテンツを取得(未登録エリアは隅に1本)
+    const content = AREA_CONTENT[area.id] ?? DEFAULT_CONTENT;
+
+    // 木を植える(中心からのローカル座標 → ワールド座標)。trees 省略/空なら植えない。
+    for (const [lx, lz, s] of content.trees ?? []) {
       const rec = this.addTree(area.cx + lx, area.cz + lz, s);
       if (animated) this._animateIn(rec.group, s); // 木は各自の基準スケール s へ出現
     }
+
+    // 追加コンテンツ(水面・魚・釣り場など)があれば生成
+    if (content.build) content.build(this, area, animated);
   }
 
   _animateIn(obj, target) {
