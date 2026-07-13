@@ -324,7 +324,7 @@ export class BuildManager {
         for (let i = 0; i < ticks; i++) {
           if (site.progress >= site.f.costLogs || (eco.resources.log ?? 0) <= 0) break;
           if (eco.take('log', 1) <= 0) break;                 // 内部数の真実は eco 側
-          const pos = carrier.popVisual();                     // 見た目を1本外す→座標取得
+          const pos = carrier.popVisualOf('log');              // 丸太指定で見た目を外す(混載時に魚を消さない)→座標取得
           site.deliverOne(pos ?? new THREE.Vector3(playerPos.x, 1.7, playerPos.z));
         }
       }

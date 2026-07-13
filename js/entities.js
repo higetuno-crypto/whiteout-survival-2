@@ -239,6 +239,37 @@ export class StackCarrier {
     return worldPos;
   }
 
+  // kind指定のpop: itemsを末尾から走査して最初に一致するitemを外し、プールへ戻す。
+  // 混載スタック(丸太+魚)で「丸太を納品したのに魚が消える」不整合を防ぐ(T8納品/T9売却用)。
+  // 外した位置より上のitemは1段ずつ静かに詰める(ドロップアニメは発火させない)。
+  // 見つからなければ popVisual() にフォールバック(内部カウントが真実なので数は合う)。
+  popVisualOf(kind) {
+    for (let i = this.items.length - 1; i >= 0; i--) {
+      if (this.items[i].kind !== kind) continue;
+      const { mesh } = this.items[i];
+      this.items.splice(i, 1);
+      const di = this.dropAnims.findIndex(a => a.mesh === mesh);
+      if (di !== -1) this.dropAnims.splice(di, 1);
+      mesh.updateWorldMatrix(true, false);
+      const worldPos = new THREE.Vector3();
+      mesh.getWorldPosition(worldPos);
+      this.group.remove(mesh);
+      const s = KIND_SCALE[kind] ?? [1, 1, 1];
+      mesh.scale.set(s[0], s[1], s[2]);
+      this.pool[kind].push(mesh);
+      // 外した位置より上を詰める。ドロップアニメ中のitemはbaseY更新のみ(位置はアニメ側が毎フレーム上書き)
+      for (let j = i; j < this.items.length; j++) {
+        const it = this.items[j];
+        it.baseY = j * LOG_STEP;
+        const anim = this.dropAnims.find(a => a.mesh === it.mesh);
+        if (anim) anim.baseY = it.baseY;
+        else it.mesh.position.y = it.baseY;
+      }
+      return worldPos;
+    }
+    return this.popVisual();
+  }
+
   updateCounter(total) {
     if (total === this._lastCounterTotal) return; // 変化なしなら再描画しない
     this._lastCounterTotal = total;
