@@ -141,7 +141,8 @@ const KIND_SCALE = {
   goods:      [1, 1, 1],
 };
 
-function createKindMesh(kind) {
+// 資源kindの見た目メッシュを1個生成(スタック用・売却フライト用に共有)
+export function createKindMesh(kind) {
   let mesh;
   switch (kind) {
     case 'log':        mesh = new THREE.Mesh(LOG_GEO, LOG_MATS); break;
