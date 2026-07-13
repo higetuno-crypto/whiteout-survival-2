@@ -8,6 +8,7 @@ import { ShopSystem } from './shop.js';
 import { ProximityAction } from './proximity.js';
 import { UI } from './ui.js';
 import { load, persist, CURRENT_VERSION } from './save.js';
+import { AREAS, canUnlockArea, RESOURCES } from './data.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -64,14 +65,20 @@ scene.add(player.root);
 // 背中スタック(見た目のみ。内部数の真実はeco.resources)
 const carrier = new StackCarrier(player.root);
 
-// ワールド(エリアごとのコンテンツ)。campエリア(cx=0,cz=0)基準に木を2本配置。
+// ワールド(エリアごとのコンテンツ)と建設マネージャ。
 const world = new World(scene);
-world.addTree(-10, -6, 1.0);
-world.addTree(10, -6, 0.85);
-
-// 建設予定地(campの3施設: fence_camp/shop_camp/fire_camp)。buildProgressで進捗を復元。
 const buildMgr = new BuildManager(scene, world, eco);
-buildMgr.spawnSitesForArea('camp', save.buildProgress);
+
+// 起動時: 解錠済みエリア(T10で保持していた unlockedAreas。campは常に含む)の地形+木+施設を復元。
+// campの土地面/木・fence_camp/shop_camp/fire_camp もこのループ経由で生成される(演出なし)。
+for (const id of unlockedAreas) {
+  const area = AREAS.find(a => a.id === id);
+  if (!area) continue;
+  world.buildAreaTerrain(area, false);
+  buildMgr.spawnSitesForArea(id, save.buildProgress);
+}
+// 解錠済みに隣接する未解錠エリアにロックパッドを出す(クリーンセーブなら camp隣接の4つ)。
+world.refreshLockPads(unlockedAreas);
 
 // 売店の自動売却 + マネータワー(T9のロジックはShopSystemへ抽出済み)。未回収金を復元。
 const shopSystem = new ShopSystem(scene, eco);
@@ -110,6 +117,37 @@ const saveNow = () => {
 };
 setInterval(saveNow, 10000);                 // 10秒ごとの自動保存
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); }); // 離脱時に保存
+
+// ==== エリア解錠フロー ====
+// 不足コストを「💰n 🪵n」形式に整形(canUnlockArea の missing から)
+function formatMissing(missing) {
+  return Object.entries(missing)
+    .map(([k, v]) => (k === 'money' ? `💰${v}` : `${RESOURCES[k]?.emoji ?? ''}${v}`))
+    .join(' ');
+}
+// パッドで1秒静止したときに呼ばれる。支払える→解放演出一式、払えない→3秒クールダウン+不足トースト。
+function tryUnlock(id, pad) {
+  const area = AREAS.find(a => a.id === id);
+  const res = canUnlockArea(id, unlockedAreas, eco.wallet());
+  if (!res.ok) {
+    pad.cooldown = 3.0;
+    ui.toast(`あと${formatMissing(res.missing)}`);
+    return;
+  }
+  const logCost = area.cost.log ?? 0;
+  eco.pay(area.cost);                    // 内部数の真実(金・丸太)を即減算
+  if (logCost > 0) {                     // 見えている丸太を最大15本パッドへ放物線で飛ばす(演出)
+    const froms = [];
+    for (let i = 0; i < Math.min(logCost, 15); i++) { const p = carrier.popVisualOf('log'); if (p) froms.push(p); }
+    world.flyLogsToPad(froms, new THREE.Vector3(pad.x, 0.6, pad.z));
+  }
+  world.buildAreaTerrain(area, true);    // 出現演出つきで地形+木
+  buildMgr.spawnSitesForArea(id, save.buildProgress);
+  unlockedAreas.push(id);
+  world.refreshLockPads(unlockedAreas);  // このパッドは撤去(シュリンク)され、新たな隣接パッドが出る
+  saveNow();
+  ui.toast(`${area.name}を解放!`);
+}
 
 // カメラ初期化(proto-a 51行 + 412-415行と同様)
 const CAM_OFF = new THREE.Vector3(0, 20, 12); // 見下ろし約59度
@@ -211,6 +249,19 @@ function step(dt) {
   }
   world.update(dt);
 
+  // エリア解錠: 未解錠パッドに半径2m内で1秒静止すると解錠判定(requireStill: 移動中は蓄積しない)。
+  // Map をスナップショットしてから回す(tryUnlock→refreshLockPads がパッドを追加/削除するため)。
+  for (const [id, pad] of [...world.lockPads]) {
+    if (pad.cooldown > 0) { pad.cooldown -= dt; pad.standTimer = 0; continue; }
+    const d = Math.hypot(player.root.position.x - pad.x, player.root.position.z - pad.z);
+    if (d <= 2.0 && !moving) {
+      pad.standTimer += dt;
+      if (pad.standTimer >= 1.0) { pad.standTimer = 0; tryUnlock(id, pad); }
+    } else {
+      pad.standTimer = 0;
+    }
+  }
+
   carrier.syncTo(eco.resources);
   carrier.update(dt, player.root, walkPhase, moving);
   // 納品(背中の丸太を建設予定地へ放物線で運ぶ)。eco.take→popVisualOf→deliverOne の順。
@@ -239,6 +290,7 @@ if (DEBUG) {
     step, scene, camera, renderer, player, input, economy: eco, carrier, world, build: buildMgr, ui,
     shop: shopSystem,
     moneyTower: () => shopSystem.moneyTower,   // getter関数(未回収金の現在値を返す)
+    get unlockedAreas() { return unlockedAreas; }, // 解錠済みエリアID配列(push で伸びる参照)
     save,                                       // ロード時のスナップショット
     saveNow,                                    // 即時保存
     collectSave,                                // 現在状態のセーブオブジェクトを生成
@@ -248,6 +300,16 @@ if (DEBUG) {
     addMoney: n => { eco.money += n; },
     completeSite: id => { const s = buildMgr.sites.get(id); if (s) s.forceComplete(); }, // 予定地を即完成
     setMoneyTower: n => { shopSystem.restore(n); },      // 金額セット+タワー見た目再構築
+    // 支払いなしで解錠処理一式(T12以降の検証用)。既に解錠済み/未知IDは無視。
+    unlockArea: id => {
+      const area = AREAS.find(a => a.id === id);
+      if (!area || unlockedAreas.includes(id)) return;
+      world.buildAreaTerrain(area, true);
+      buildMgr.spawnSitesForArea(id, save.buildProgress);
+      unlockedAreas.push(id);
+      world.refreshLockPads(unlockedAreas);
+      saveNow();
+    },
   };
   document.getElementById('debug').style.display = 'flex';
 }
