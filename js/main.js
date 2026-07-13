@@ -3,6 +3,7 @@ import { createRenderer, lambert } from './render.js';
 import { Economy } from './economy.js';
 import { makeCharacter, animateWalk, faceAngle, SANTA_COLORS, StackCarrier } from './entities.js';
 import { World } from './world.js';
+import { ProximityAction } from './proximity.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -106,8 +107,15 @@ const clock = new THREE.Clock();
 let walkPhase = 0;
 const _camTgt = new THREE.Vector3(), _lookTgt = new THREE.Vector3(); // 毎フレームのVector3生成を回避
 
-// 伐採状態(木の近くで立ち止まると自動で丸太を集める)
-let chopTimer = 0, chopAccum = 0, chopping = false;
+// 伐採(木の近くで立ち止まると自動で丸太を集める)。近接自動処理は ProximityAction に共通化。
+// 挙動は T7 と不変: radius 2.2 / startDelay 0.5 / interval 0.35 / 要静止。
+const chop = new ProximityAction({ radius: 2.2, startDelay: 0.5, interval: 0.35, requireStill: true });
+let chopping = false;
+function stopChopVisual() {
+  player.bodyGroup.scale.set(1, 1, 1);
+  player.bodyGroup.rotation.x = 0;
+  for (const t of world.trees) t.foliage.rotation.set(0, 0, 0);
+}
 
 function step(dt) {
   pollKeys();
@@ -123,34 +131,27 @@ function step(dt) {
   if (!chopping) animateWalk(player, walkPhase, moving, dt);
 
   // 伐採ロジック(半径2.2m以内の木の近くで立ち止まると発動。proto-a 429-451行を移植)
-  const tree = world.nearestTree(player.root.position, 2.2);
-  if (!moving && tree) {
-    chopTimer += dt;
-    chopping = chopTimer > 0.5;
-    if (chopping) {
-      chopAccum += dt;
-      while (chopAccum >= 0.35) {
-        chopAccum -= 0.35;
-        if (eco.add('log', 1) > 0) tree.pulse = 1;
-      }
-      // 伐採ボディバウンス(proto-a 437-442行)
-      const w = chopTimer * (Math.PI * 2 / 0.3);
-      player.bodyGroup.scale.y = 1 - 0.09 * (0.5 + 0.5 * Math.sin(w));
-      player.bodyGroup.scale.x = player.bodyGroup.scale.z = 1 + 0.05 * (0.5 + 0.5 * Math.sin(w));
-      player.bodyGroup.rotation.x = 0.1 + 0.14 * Math.sin(w);
-      player.armL.rotation.x = player.armR.rotation.x = -1.1 + 0.85 * Math.sin(w + 0.6);
-      // 木の揺れ
-      tree.foliage.rotation.z = 0.045 * Math.sin(chopTimer * 46);
-      tree.foliage.rotation.x = 0.032 * Math.sin(chopTimer * 37);
-    }
+  const tree = moving ? null : world.nearestTree(player.root.position, chop.radius); // !moving時のみ探索
+  const chopTicks = chop.update(!!tree, !moving, dt);
+  const full = eco.totalCarried() >= eco.capacity();
+  for (let i = 0; i < chopTicks; i++) {
+    if (eco.add('log', 1) > 0) tree.pulse = 1;   // chopTicks>0 のとき tree は必ず非null
+  }
+  // 満杯時は伐採演出を止める(働いてるのに増えない見た目を防ぐ)
+  if (chop.active && tree && !full) {
+    chopping = true;
+    // 伐採ボディバウンス(proto-a 437-442行)
+    const w = chop.timer * (Math.PI * 2 / 0.3);
+    player.bodyGroup.scale.y = 1 - 0.09 * (0.5 + 0.5 * Math.sin(w));
+    player.bodyGroup.scale.x = player.bodyGroup.scale.z = 1 + 0.05 * (0.5 + 0.5 * Math.sin(w));
+    player.bodyGroup.rotation.x = 0.1 + 0.14 * Math.sin(w);
+    player.armL.rotation.x = player.armR.rotation.x = -1.1 + 0.85 * Math.sin(w + 0.6);
+    // 木の揺れ
+    tree.foliage.rotation.z = 0.045 * Math.sin(chop.timer * 46);
+    tree.foliage.rotation.x = 0.032 * Math.sin(chop.timer * 37);
   } else {
-    if (chopping) {
-      // 伐採終了: スケール/回転を戻す
-      player.bodyGroup.scale.set(1, 1, 1);
-      player.bodyGroup.rotation.x = 0;
-      for (const t of world.trees) t.foliage.rotation.set(0, 0, 0);
-    }
-    chopTimer = 0; chopAccum = 0; chopping = false;
+    if (chopping) stopChopVisual(); // 伐採終了(移動・範囲外・満杯)でスケール/回転を戻す
+    chopping = false;
   }
   world.update(dt);
 

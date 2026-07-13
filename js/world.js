@@ -1,8 +1,8 @@
 // エリアごとのコンテンツ(木など)を管理する器。
 // 移植元: reference/proto-a.html 178-198行(makeTree) / 591-593行(木パルス減衰)
 import * as THREE from 'three';
-import { lambert, blobShadow, mergeGeos, shadowMat } from './render.js';
-import { AREAS } from './data.js';
+import { lambert, blobShadow } from './render.js';
+// import { AREAS } from './data.js'; // T11(エリア地面/解錠)で使用予定
 
 /* ================= ローポリ松の木 ================= */
 export function makeTree(scale) {
