@@ -66,3 +66,9 @@ export function sanitizeUnlocked(ids) {
   for (const id of ids ?? []) if (valid.has(id) && !out.includes(id)) out.push(id);
   return out;
 }
+
+// エリアは格子配置(x方向±30、z方向±26)。辺を接する2エリアが隣接
+export function areAreasAdjacent(a, b) {
+  const dx = Math.abs(a.cx - b.cx), dz = Math.abs(a.cz - b.cz);
+  return (dx === 30 && dz === 0) || (dx === 0 && dz === 26);
+}

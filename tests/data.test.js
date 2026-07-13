@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { AREAS, FACILITIES, canUnlockArea, sanitizeUnlocked, RESOURCES, PRICES } from '../js/data.js';
+import { AREAS, FACILITIES, canUnlockArea, sanitizeUnlocked, areAreasAdjacent, RESOURCES, PRICES } from '../js/data.js';
 
 test('エリアは7つ、先頭はcampでコストなし', () => {
   assert.equal(AREAS.length, 7);
@@ -46,6 +46,16 @@ test('全施設は実在エリアに属し、丸太コストを持つ', () => {
     assert.ok(ids.has(f.areaId), f.id);
     assert.ok(f.costLogs > 0 || f.kind === 'unlockPad', f.id);
   }
+});
+
+test('隣接判定: campは lake/forest/hut/market と隣接、fishery とは非隣接', () => {
+  const byId = Object.fromEntries(AREAS.map(a => [a.id, a]));
+  assert.equal(areAreasAdjacent(byId.camp, byId.lake), true);
+  assert.equal(areAreasAdjacent(byId.camp, byId.forest), true);
+  assert.equal(areAreasAdjacent(byId.camp, byId.hut), true);
+  assert.equal(areAreasAdjacent(byId.camp, byId.market), true);
+  assert.equal(areAreasAdjacent(byId.camp, byId.fishery), false);
+  assert.equal(areAreasAdjacent(byId.lake, byId.fishery), true);
 });
 
 test('価格表: 加工するほど高い', () => {

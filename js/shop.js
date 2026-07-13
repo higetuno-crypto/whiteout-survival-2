@@ -1,6 +1,6 @@
 // 売店(shop_camp)の自動売却サブシステム + マネータワー(未回収金の見た目)。
 // T9でmain.jsのクロージャに入っていた売却ロジック一式(moneyTower/tower/sellFlights/sellPool
-// + 関数3つ)をShopSystemクラスへ抽出。挙動はT9から不変。
+// + 関数3つ)をShopSystemクラスへ抽出。売却/回収ロジックはT9から不変(札束枚数の式のみceilに調整)。
 //
 // 責務分離:
 //   ShopSystem  — 未回収金(真実)の管理・売却tick・回収判定・売却フライト。T14でNPCも deposit() で入金。
@@ -150,7 +150,7 @@ export class ShopSystem {
 
   get attached() { return this.site !== null; }
 
-  // shop_camp完成時に売店siteと接続(タワー位置=site脇 lx+2)。復元済みの金額を見た目へ即反映。
+  // shop_camp完成時に売店siteと接続(タワー位置=site脇 site.x + 2(ワールド座標))。復元済みの金額を見た目へ即反映。
   attachShop(site) {
     if (this.site) return;
     this.site = site;
