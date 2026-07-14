@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { lambert, mergeGeos, roundedRectShape } from './render.js';
 import { FACILITIES, AREAS, RESOURCES } from './data.js';
 import { ProximityAction } from './proximity.js';
+import { createKindMesh } from './entities.js';
 
 // 納品フライト/建設中スタック用の丸太(X軸に寝かせた円柱)。モジュールで1回だけ生成して共有。
 const FLIGHT_LOG_GEO = new THREE.CylinderGeometry(0.16, 0.16, 1.8, 9).rotateZ(Math.PI / 2);
@@ -14,6 +15,20 @@ const FLIGHT_LOG_CAP = lambert(0xf3dfae);
 const FLIGHT_LOG_MATS = [FLIGHT_LOG_SIDE, FLIGHT_LOG_CAP, FLIGHT_LOG_CAP];
 const LOG_STEP = 0.31;       // 井桁スタックの段差
 const CRIB_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0)); // 奇数段の直交
+
+// 調理フライト(T13): 生魚→焚き火→焼き魚。色/形はentities.jsのcreateKindMeshから複製して取得
+// (entities.js非改変。RAW_FISH_MAT/COOKED_FISH_MATは非exportのため、生成物から色だけ拝借する)。
+const _cookRawProto = createKindMesh('rawFish');
+const _cookCookedProto = createKindMesh('cookedFish');
+const COOK_FISH_GEO = _cookRawProto.geometry;              // rawFish/cookedFishは同一ジオメトリ
+const COOK_FISH_SCALE = _cookRawProto.scale.clone();       // 扁平球のスケール(rawFish/cookedFish共通)
+const COOK_RAW_COLOR = _cookRawProto.material.color.clone();
+const COOK_COOKED_COLOR = _cookCookedProto.material.color.clone();
+const COOK_OUT_DUR = 0.35;    // 背中→焚き火の放物線フライト
+const COOK_SIZZLE_DUR = 0.3;  // 焚き火上でジュージュー(色変化+煙)
+const COOK_BACK_DUR = 0.35;   // 焚き火→背中の放物線フライト(戻り)
+const SMOKE_GEO = new THREE.SphereGeometry(0.07, 6, 5);
+const SMOKE_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true });
 
 // 白点線枠: 0.5m間隔で 0.28×0.06×0.1 の白Box を w×d 矩形の外周に並べた Group を返す(シェーダ不要)
 export function dashedRect(w, d) {
@@ -58,6 +73,8 @@ export class BuildSite {
     this.completeAnim = null; // {t} easeOutBack
     this.extra = {};          // campfire: {fire, light}
     this._fireTime = 0;
+    this.cookFlights = [];    // 調理フライト(T13): {mesh, phase, t, from, fire, back, puffs}
+    this.cooking = false;     // 調理中フラグ(main.jsがProximityAction.activeを毎フレーム反映。炎ブースト用)
 
     // 納品ステートマシン(近接で0.1秒ごとに1本)。伐採と同じ ProximityAction を再利用。
     this.deliver = new ProximityAction({ radius: 2.5, startDelay: 0, interval: 0.1, requireStill: false });
@@ -119,6 +136,39 @@ export class BuildSite {
     this._drawProgress();
   }
 
+  // 調理(T13): 生魚1匹ぶんの演出を開始する(内部カウントの変換はmain.js側でtick時に即時確定済み。
+  // ここは見た目のみ)。fromWorld=発射元(背中, StackCarrier.popVisualOfの戻り値)。
+  // backTarget=戻り先(呼び出し時点のプレイヤー背中付近。フライト中の追尾はしない=他フライトと同じ簡略化)。
+  cookFish(fromWorld, backTarget) {
+    const mat = lambert(COOK_RAW_COLOR.getHex());
+    const mesh = new THREE.Mesh(COOK_FISH_GEO, mat);
+    mesh.scale.copy(COOK_FISH_SCALE);
+    mesh.position.copy(fromWorld);
+    this.scene.add(mesh);
+    this.cookFlights.push({
+      mesh,
+      phase: 'out',   // 'out' → 'sizzle' → 'back'
+      t: 0,
+      from: fromWorld.clone(),
+      fire: new THREE.Vector3(this.x, 0.95, this.z),
+      back: backTarget.clone(),
+      puffs: null,
+    });
+  }
+
+  // 調理フライトの煙パフ2個を生成(白・半透明。ジュージューの間だけゆっくり上昇+フェード)
+  _spawnSmokePuffs(pos) {
+    const mat = SMOKE_MAT.clone();
+    const meshes = [];
+    for (let k = 0; k < 2; k++) {
+      const sm = new THREE.Mesh(SMOKE_GEO, mat);
+      sm.position.set(pos.x + (k === 0 ? -0.12 : 0.12), pos.y + 0.15, pos.z);
+      this.scene.add(sm);
+      meshes.push(sm);
+    }
+    return { meshes, mat };
+  }
+
   update(dt) {
     // 放物線フライト(proto-a 535-554行: 0.38秒・smoothstep・放物線高さ2.1*4*e*(1-e)・slerp)
     for (let i = this.flights.length - 1; i >= 0; i--) {
@@ -152,10 +202,57 @@ export class BuildSite {
       if (p >= 1) { this.completedMesh.scale.setScalar(1); this.completeAnim = null; }
     }
 
-    // campfire の炎ゆらぎ + 光の明滅
+    // 調理フライト(T13): 生魚→焚き火(0.35s放物線)→ジュージュー(0.3s。色変化+煙2個)→焼き魚→背中(0.35s放物線)。
+    // 内部カウントはtick時点(main.js)で確定済みなので、ここで完了を待たずとも数の真実は既に合っている。
+    for (let i = this.cookFlights.length - 1; i >= 0; i--) {
+      const f = this.cookFlights[i];
+      f.t += dt;
+      if (f.phase === 'out') {
+        const p = Math.min(1, f.t / COOK_OUT_DUR);
+        const e = p * p * (3 - 2 * p);
+        f.mesh.position.lerpVectors(f.from, f.fire, e);
+        f.mesh.position.y += 1.4 * 4 * e * (1 - e);
+        if (p >= 1) {
+          f.mesh.position.copy(f.fire);
+          f.phase = 'sizzle';
+          f.t = 0;
+          f.puffs = this._spawnSmokePuffs(f.fire);
+        }
+      } else if (f.phase === 'sizzle') {
+        const p = Math.min(1, f.t / COOK_SIZZLE_DUR);
+        f.mesh.material.color.lerpColors(COOK_RAW_COLOR, COOK_COOKED_COLOR, p);
+        if (f.puffs) {
+          for (const sm of f.puffs.meshes) sm.position.y += 0.6 * dt;
+          f.puffs.mat.opacity = 1 - p;
+        }
+        if (p >= 1) {
+          f.mesh.material.color.copy(COOK_COOKED_COLOR);
+          if (f.puffs) {
+            for (const sm of f.puffs.meshes) this.scene.remove(sm);
+            f.puffs.mat.dispose();
+            f.puffs = null;
+          }
+          f.phase = 'back';
+          f.t = 0;
+        }
+      } else { // 'back'
+        const p = Math.min(1, f.t / COOK_BACK_DUR);
+        const e = p * p * (3 - 2 * p);
+        f.mesh.position.lerpVectors(f.fire, f.back, e);
+        f.mesh.position.y += 1.4 * 4 * e * (1 - e);
+        if (p >= 1) {
+          this.scene.remove(f.mesh);
+          f.mesh.material.dispose();
+          this.cookFlights.splice(i, 1);
+        }
+      }
+    }
+
+    // campfire の炎ゆらぎ + 光の明滅(調理中はmain.jsがthis.cookingを立て、炎を1.3倍に強める)
     if (this.extra.fire) {
       this._fireTime += dt;
-      const sy = 1 + 0.15 * Math.sin(this._fireTime * 12) + 0.08 * Math.sin(this._fireTime * 27);
+      let sy = 1 + 0.15 * Math.sin(this._fireTime * 12) + 0.08 * Math.sin(this._fireTime * 27);
+      if (this.cooking) sy *= 1.3;
       this.extra.fire.scale.set(1, sy, 1);
       if (this.extra.light) this.extra.light.intensity = 0.8 + 0.25 * Math.sin(this._fireTime * 15);
     }

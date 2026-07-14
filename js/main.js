@@ -216,6 +216,12 @@ const fishAction = new ProximityAction({ radius: 2.0, startDelay: 0.5, interval:
 let fishing = false;
 const _backPos = new THREE.Vector3(); // 釣りフライトの着地目標(毎フレームのVector3生成を回避)
 
+// 調理(焚き火完成後、半径2.2m内で生魚を持っていると0.8秒ごとに焼き魚へ変換)。
+// 焚き火の周りは動いても調理継続でよい(requireStill: false)。fire_campはcampが常に解錠済みのため起動時から存在。
+const cook = new ProximityAction({ radius: 2.2, startDelay: 0.4, interval: 0.8, requireStill: false });
+const fireSite = buildMgr.sites.get('fire_camp');
+const _cookBackPos = new THREE.Vector3(); // 調理フライトの戻り先(毎フレームのVector3生成を回避)
+
 // 湖エリアの土地rect(島の進入ゲート用)。lake は格子固定なので起動時に確定。
 const LAKE_AREA = AREAS.find(a => a.id === 'lake');
 
@@ -296,6 +302,23 @@ function step(dt) {
   } else {
     if (fishing) player.bodyGroup.rotation.x = 0; // 釣り終了で前傾を戻す
     fishing = false;
+  }
+
+  // 調理ロジック(焚き火完成後、半径2.2m内で生魚を持っていると0.8秒ごとに1匹変換。要静止なし=歩いても継続)。
+  // 生魚が尽きたら hasRawFish が false になり ProximityAction がリセットされる(売店のhasSellableと同じ形)。
+  if (fireSite) {
+    const hasRawFish = (eco.resources.rawFish ?? 0) > 0;
+    const cd = Math.hypot(player.root.position.x - fireSite.x, player.root.position.z - fireSite.z);
+    const atFire = fireSite.completed && cd <= cook.radius;
+    const cookTicks = cook.update(atFire && hasRawFish, true, dt);
+    for (let i = 0; i < cookTicks; i++) {
+      if (eco.take('rawFish', 1) !== 1) break;
+      eco.resources.cookedFish += 1; // 容量は「入れ替え」なので直接加算(eco.addは満杯時に消失するリスクがある)
+      const from = carrier.popVisualOf('rawFish') ?? new THREE.Vector3(player.root.position.x, 1.7, player.root.position.z);
+      _cookBackPos.set(player.root.position.x, 1.8, player.root.position.z);
+      fireSite.cookFish(from, _cookBackPos);
+    }
+    fireSite.cooking = cook.active; // 調理中は炎を強める演出フラグ(BuildSite.updateが参照)
   }
 
   world.update(dt);
