@@ -166,6 +166,7 @@ export class StackCarrier {
     this.items = [];      // {mesh, baseY, kind} 表示中のスタック(先頭=一番下)
     this.pool = { log: [], rawFish: [], cookedFish: [], plank: [], goods: [] };
     this.dropAnims = [];  // {mesh, baseY, t, kind} proto-a 360, 514-532行
+    this._syncBuf = new Array(VISUAL_STACK_CAP); // syncToの目標配列(毎フレームの[]生成を避ける再利用バッファ)
 
     // ばね物理状態(proto-a 366-368行)
     this.bendF = 0; this.bendFV = 0; this.bendS = 0; this.bendSV = 0;
@@ -193,19 +194,21 @@ export class StackCarrier {
   }
 
   // counts = economy.resources(全kindの内部カウント)。見た目を内部数に同期させる。
+  // 目標並びは再利用バッファ(this._syncBuf)へ書き、長さ len で管理する(毎フレームの配列生成を回避)。
   syncTo(counts) {
     let total = 0;
-    const target = [];
+    const buf = this._syncBuf;
+    let len = 0;
     for (const k of KIND_ORDER) {
       const n = Math.max(0, counts[k] ?? 0);
       total += n;
-      for (let i = 0; i < n && target.length < VISUAL_STACK_CAP; i++) target.push(k);
+      for (let i = 0; i < n && len < VISUAL_STACK_CAP; i++) buf[len++] = k;
     }
     // this.items と先頭から比較し、一致しない位置以降を popVisual で全部戻してから push し直す(単純・確実)
     let i = 0;
-    while (i < target.length && i < this.items.length && this.items[i].kind === target[i]) i++;
+    while (i < len && i < this.items.length && this.items[i].kind === buf[i]) i++;
     while (this.items.length > i) this.popVisual();
-    for (let j = i; j < target.length; j++) this.pushVisual(target[j]);
+    for (let j = i; j < len; j++) this.pushVisual(buf[j]);
     this.updateCounter(total);
   }
 

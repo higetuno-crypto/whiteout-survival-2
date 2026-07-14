@@ -159,9 +159,14 @@ export class World {
     return rec;
   }
 
-  nearestTree(pos, radius) {
+  // filter(t)=trueの木だけを対象にできる(省略時は全木)。NPCの木の予約(reservedBy)で使う。
+  nearestTree(pos, radius, filter) {
     let best = null, bd = radius;
-    for (const t of this.trees) { const d = Math.hypot(t.x - pos.x, t.z - pos.z); if (d < bd) { bd = d; best = t; } }
+    for (const t of this.trees) {
+      if (filter && !filter(t)) continue;
+      const d = Math.hypot(t.x - pos.x, t.z - pos.z);
+      if (d < bd) { bd = d; best = t; }
+    }
     return best;
   }
 
