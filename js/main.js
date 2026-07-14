@@ -222,6 +222,16 @@ const cook = new ProximityAction({ radius: 2.2, startDelay: 0.4, interval: 0.8, 
 const fireSite = buildMgr.sites.get('fire_camp');
 const _cookBackPos = new THREE.Vector3(); // 調理フライトの戻り先(毎フレームのVector3生成を回避)
 
+// 納品はサイト単位ではなく「配達者(deliverer)」単位に(T14)。プレイヤーは自分のタイマーで
+// 最寄りの未完成サイトへ丸太を運ぶ。挙動はT8と不変(半径2.5m・0.1s間隔)。NPCは各自のアダプタを持つ。
+const playerDeliverer = {
+  pos: player.root.position,                                                   // 参照(毎フレーム同じインスタンスを書き換え)
+  deliver: new ProximityAction({ radius: 2.5, startDelay: 0, interval: 0.1, requireStill: false }),
+  takeLog: () => eco.take('log', 1),
+  popLogVisual: () => carrier.popVisualOf('log'),
+};
+const deliverers = [playerDeliverer]; // buildMgr.updateへ渡す配列(定数=毎フレームの生成を回避)
+
 // 湖エリアの土地rect(島の進入ゲート用)。lake は格子固定なので起動時に確定。
 const LAKE_AREA = AREAS.find(a => a.id === 'lake');
 
@@ -338,8 +348,8 @@ function step(dt) {
 
   carrier.syncTo(eco.resources);
   carrier.update(dt, player.root, walkPhase, moving);
-  // 納品(背中の丸太を建設予定地へ放物線で運ぶ)。eco.take→popVisualOf→deliverOne の順。
-  buildMgr.update(dt, player.root.position, eco, carrier);
+  // 納品(背中の丸太を建設予定地へ放物線で運ぶ)。配達者(=プレイヤー)ごとに最寄り未完成サイトへ。
+  buildMgr.update(dt, deliverers);
   // 売店の自動売却 + マネータワー + 売却品フライト(shop_camp完成で接続)
   const shopSite = buildMgr.sites.get('shop_camp');
   if (shopSite?.completed && !shopSystem.attached) shopSystem.attachShop(shopSite);

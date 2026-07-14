@@ -5,7 +5,6 @@
 import * as THREE from 'three';
 import { lambert, mergeGeos, roundedRectShape } from './render.js';
 import { FACILITIES, AREAS, RESOURCES } from './data.js';
-import { ProximityAction } from './proximity.js';
 import { createKindMesh } from './entities.js';
 
 // 納品フライト/建設中スタック用の丸太(X軸に寝かせた円柱)。モジュールで1回だけ生成して共有。
@@ -76,8 +75,8 @@ export class BuildSite {
     this.cookFlights = [];    // 調理フライト(T13): {mesh, phase, t, from, fire, back, puffs}
     this.cooking = false;     // 調理中フラグ(main.jsがProximityAction.activeを毎フレーム反映。炎ブースト用)
 
-    // 納品ステートマシン(近接で0.1秒ごとに1本)。伐採と同じ ProximityAction を再利用。
-    this.deliver = new ProximityAction({ radius: 2.5, startDelay: 0, interval: 0.1, requireStill: false });
+    // 納品タイマーはサイト側ではなく「配達者(deliverer)」側が持つ(BuildManager.serveDeliverer)。
+    // プレイヤーとNPCが各自のペースで最寄り未完成サイトに納品できるようにするための分離(T14)。
 
     this.outline = dashedRect(4, 4);
     this.outline.position.set(this.x, 0, this.z);
@@ -435,22 +434,37 @@ export class BuildManager {
     }
   }
 
-  update(dt, playerPos, eco, carrier) {
+  // pos に最も近い「未完成(納品途中)」サイトを返す。radius 内に無ければ null。
+  // radius 省略時は距離無制限(NPCが遠くの納品先へ向かうナビ目標の取得に使う)。
+  nearestIncompleteSite(pos, radius = Infinity) {
+    let best = null, bd = radius;
     for (const site of this.sites.values()) {
-      if (!site.completed) {
-        const dist = Math.hypot(playerPos.x - site.x, playerPos.z - site.z);
-        const hasLog = (eco.resources.log ?? 0) > 0;
-        const inRange = dist <= site.deliver.radius && hasLog && site.progress < site.f.costLogs;
-        const ticks = site.deliver.update(inRange, true, dt);
-        for (let i = 0; i < ticks; i++) {
-          if (site.progress >= site.f.costLogs || (eco.resources.log ?? 0) <= 0) break;
-          if (eco.take('log', 1) <= 0) break;                 // 内部数の真実は eco 側
-          const pos = carrier.popVisualOf('log');              // 丸太指定で見た目を外す(混載時に魚を消さない)→座標取得
-          site.deliverOne(pos ?? new THREE.Vector3(playerPos.x, 1.7, playerPos.z));
-        }
-      }
-      site.update(dt);
+      if (site.completed || site.progress >= site.f.costLogs) continue; // 完成/納品済みは対象外
+      const d = Math.hypot(pos.x - site.x, pos.z - site.z);
+      if (d <= bd) { bd = d; best = site; }
     }
+    return best;
+  }
+
+  // 配達者1体ぶんの納品tick。deliverer = { pos, deliver(ProximityAction), takeLog():0|1, popLogVisual():Vector3|null }。
+  // 最寄りの未完成サイト(deliver.radius内)に対し、配達者自身のタイマーで0本以上納品する。
+  // プレイヤー(main.jsアダプタ)とNPC(npc.js)が同じ実装を共有する。
+  serveDeliverer(dt, d) {
+    const site = this.nearestIncompleteSite(d.pos, d.deliver.radius);
+    const ticks = d.deliver.update(!!site, true, dt);
+    if (!site) return;
+    for (let i = 0; i < ticks; i++) {
+      if (site.progress >= site.f.costLogs) break;
+      if (d.takeLog() <= 0) break;                      // 在庫切れ(内部数の真実は配達者側)
+      const pos = d.popLogVisual();                     // 丸太指定で見た目を外す(混載時に魚を消さない)→座標取得
+      site.deliverOne(pos ?? new THREE.Vector3(d.pos.x, 1.7, d.pos.z));
+    }
+  }
+
+  // deliverers = 配達者の配列(プレイヤー + 任意のNPC)。各自の納品tick後、全サイトを更新する。
+  update(dt, deliverers) {
+    for (const d of deliverers) this.serveDeliverer(dt, d);
+    for (const site of this.sites.values()) site.update(dt);
   }
 
   serialize() {
