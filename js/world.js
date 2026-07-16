@@ -59,7 +59,9 @@ const AREA_CONTENT = {
 };
 const DEFAULT_CONTENT = { trees: [[-9, -6, 0.8]] }; // エントリのないエリアは隅に1本
 
-const DIRT_MAT = lambert(0xb98d5f);
+const DIRT_MAT = lambert(0xcaa470);      // 明るい暖色の土(参照動画のタン色に寄せる)
+const RIM_MAT = lambert(0xb08a58);       // 土の縁取り(ひとまわり大きい下敷きで「島」感を出す)
+const PATH_MAT = lambert(0xe3d5b8);      // 隣接エリアを繋ぐ踏み固めた道
 
 /* ================= 湖のコンテンツ(水面・泳ぐ魚・釣り場) ================= */
 const WATER_MAT = lambert(0x63b1e0);
@@ -153,6 +155,7 @@ export class World {
     this.trees = [];              // {group, foliage, x, z, pulse}
     this.lockPads = new Map();    // areaId -> {x, z, group, cooldown, standTimer}
     this.builtAreas = new Set();  // 地形生成済みエリア(二重生成ガード)
+    this._paths = new Map();      // 'a-b'(ソート済みペア) -> 道メッシュ(二重生成ガード)
     this.reveals = [];            // {obj, target, t} easeOutBack で 0→target に出現
     this.padRetires = [];         // {group, t} 消えるパッドのシュリンク
     this.logFlights = [];         // {mesh, from, to, t} 解放演出の丸太フライト
@@ -166,9 +169,22 @@ export class World {
     const t = makeTree(s);
     t.group.position.set(x, 0, z);
     this.scene.add(t.group);
-    const rec = { group: t.group, foliage: t.foliage, x, z, pulse: 0 };
+    const rec = { group: t.group, foliage: t.foliage, x, z, pulse: 0, r: 0.7 * s }; // r=幹の当たり判定半径
     this.trees.push(rec);
     return rec;
+  }
+
+  // 木の幹の円形当たり判定: pos が幹半径+margin 内に入ったら半径方向へ押し出す(すり抜け防止)。
+  pushOutOfTrees(pos, margin) {
+    for (const t of this.trees) {
+      const dx = pos.x - t.x, dz = pos.z - t.z;
+      const rr = t.r + margin;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= rr * rr || d2 < 1e-8) continue;
+      const d = Math.sqrt(d2);
+      pos.x = t.x + (dx / d) * rr;
+      pos.z = t.z + (dz / d) * rr;
+    }
   }
 
   // filter(t)=trueの木だけを対象にできる(省略時は全木)。NPCの木の予約(reservedBy)で使う。
@@ -188,12 +204,36 @@ export class World {
     this.builtAreas.add(area.id);
 
     // 土の地面(proto-a 150-156行と同じ作り)。ShapeGeometry は原点中心なので mesh 原点=エリア中心へ。
+    // 下に一回り大きい濃色の縁取りを敷いて「島」として輪郭を立たせる(床が破綻して見えるFB対策)。
+    const rimGeo = new THREE.ShapeGeometry(roundedRectShape(area.hw + 0.7, area.hd + 0.7, 3.0), 10);
+    rimGeo.rotateX(-Math.PI / 2);
+    const rim = new THREE.Mesh(rimGeo, RIM_MAT);
+    rim.position.set(area.cx, 0.015, area.cz);
+    this.scene.add(rim);
     const dirtGeo = new THREE.ShapeGeometry(roundedRectShape(area.hw, area.hd, 2.5), 10);
     dirtGeo.rotateX(-Math.PI / 2);
     const dirt = new THREE.Mesh(dirtGeo, DIRT_MAT);
-    dirt.position.set(area.cx, 0.02, area.cz);
+    dirt.position.set(area.cx, 0.03, area.cz);
     this.scene.add(dirt);
-    if (animated) this._animateIn(dirt, 1);
+    if (animated) { this._animateIn(rim, 1); this._animateIn(dirt, 1); }
+
+    // 隣接する解錠済みエリアへ「道」を敷く(camp⇔lakeは橋があるので道は敷かない)。
+    for (const other of AREAS) {
+      if (!this.builtAreas.has(other.id) || other.id === area.id) continue;
+      if (!areAreasAdjacent(area, other)) continue;
+      const pair = [area.id, other.id].sort().join('-');
+      if (pair === 'camp-lake' || this._paths.has(pair)) continue;
+      const mx = (area.cx + other.cx) / 2, mz = (area.cz + other.cz) / 2;
+      const alongX = area.cz === other.cz; // x方向に隣接(=道はx向き)
+      const len = alongX ? 8 : 10;         // 隙間(4/6m)+両側1〜2mの食い込み
+      const pathGeo = new THREE.ShapeGeometry(roundedRectShape(alongX ? len / 2 : 1.5, alongX ? 1.5 : len / 2, 1.2), 8);
+      pathGeo.rotateX(-Math.PI / 2);
+      const path = new THREE.Mesh(pathGeo, PATH_MAT);
+      path.position.set(mx, 0.025, mz);
+      this.scene.add(path);
+      this._paths.set(pair, path);
+      if (animated) this._animateIn(path, 1);
+    }
 
     // レジストリからこのエリアのコンテンツを取得(未登録エリアは隅に1本)
     const content = AREA_CONTENT[area.id] ?? DEFAULT_CONTENT;

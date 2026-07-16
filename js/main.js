@@ -29,7 +29,9 @@ try {
 }
 const { renderer, scene, camera } = R;
 
-// 仮の雪原(proto-a.html 118-133行の起伏つき地面をコピー)
+// 雪原。プレイ圏(エリア群のある中心部)はほぼ平らな真っ白、遠景だけ緩やかな起伏。
+// flatShading+強い起伏だと灰色のまだらに見える(オーナーFB「暗い」の一因)ため、
+// 起伏はプレイ圏の外(d>52)に限定し、振幅も控えめにする。
 {
   const snowGeo = new THREE.PlaneGeometry(240, 240, 48, 48);
   snowGeo.rotateX(-Math.PI / 2);
@@ -37,13 +39,13 @@ const { renderer, scene, camera } = R;
   for (let i = 0; i < p.count; i++) {
     const x = p.getX(i), z = p.getZ(i);
     const d = Math.hypot(x, z);
-    if (d > 19) {
-      const fade = Math.min(1, (d - 19) / 14);
+    if (d > 52) {
+      const fade = Math.min(1, (d - 52) / 20);
       const n = Math.sin(x * 0.35) * Math.cos(z * 0.27) + Math.sin(x * 0.13 + z * 0.21) * 0.7;
-      p.setY(i, n * 0.38 * fade);
+      p.setY(i, n * 0.3 * fade);
     }
   }
-  scene.add(new THREE.Mesh(snowGeo, lambert(0xe8edf5)));
+  scene.add(new THREE.Mesh(snowGeo, lambert(0xf6f9fe, { flatShading: false })));
 }
 
 // ==== セーブのロード(シーン構築の前に読む) ====
@@ -262,9 +264,10 @@ const clock = new THREE.Clock();
 let walkPhase = 0;
 const _camTgt = new THREE.Vector3(), _lookTgt = new THREE.Vector3(); // 毎フレームのVector3生成を回避
 
-// 伐採(木の近くで立ち止まると自動で丸太を集める)。近接自動処理は ProximityAction に共通化。
-// 挙動は T7 と不変: radius 2.2 / startDelay 0.5 / interval 0.35 / 要静止。
-const chop = new ProximityAction({ radius: 2.2, startDelay: 0.5, interval: 0.35, requireStill: true });
+// 伐採(木に近づくだけで自動で丸太を集める)。近接自動処理は ProximityAction に共通化。
+// オーナーFB反映: 立ち止まり必須(requireStill)を廃止し、遅延も短縮。木には当たり判定が
+// あるので「歩いて木にぶつかる→その場で切れ始める」が自然に成立する。
+const chop = new ProximityAction({ radius: 2.2, startDelay: 0.25, interval: 0.35, requireStill: false });
 let chopping = false;
 function stopChopVisual() {
   player.bodyGroup.scale.set(1, 1, 1);
@@ -272,8 +275,9 @@ function stopChopVisual() {
   for (const t of world.trees) t.foliage.rotation.set(0, 0, 0);
 }
 
-// 釣り(釣りスポットで立ち止まると自動で生魚を集める)。伐採より低頻度(1.2s間隔)。
-const fishAction = new ProximityAction({ radius: 2.0, startDelay: 0.5, interval: 1.2, requireStill: true });
+// 釣り(釣りスポットに近づくだけで自動で生魚を集める)。伐採より低頻度(1.2s間隔)。
+// オーナーFB反映: 要静止を廃止(微小な入力ゆらぎで進捗リセットされる厳しさを解消)。
+const fishAction = new ProximityAction({ radius: 2.0, startDelay: 0.4, interval: 1.2, requireStill: false });
 let fishing = false;
 const _backPos = new THREE.Vector3(); // 釣りフライトの着地目標(毎フレームのVector3生成を回避)
 
@@ -327,18 +331,20 @@ function step(dt) {
   }
   // 2) 水面は常に進入不可: 視覚半幅+0.3マージンの水rectから押し出す。
   pushOutOfRect(player.root.position, LAKE_WATER.cx, LAKE_WATER.cz, LAKE_WATER.hw + 0.3, LAKE_WATER.hd + 0.3);
+  // 3) 木の幹には当たり判定(すり抜けない)。近い木だけ円で押し出す。
+  world.pushOutOfTrees(player.root.position, 0.75);
 
   if (!chopping && !fishing) animateWalk(player, walkPhase, moving, dt);
 
-  // 伐採ロジック(半径2.2m以内の木の近くで立ち止まると発動。proto-a 429-451行を移植)
-  const tree = moving ? null : world.nearestTree(player.root.position, chop.radius); // !moving時のみ探索
+  // 伐採ロジック(木に近づけば自動発動。移動中もタイマーは進むが、演出は停止時のみ)
+  const tree = world.nearestTree(player.root.position, chop.radius);
   const chopTicks = chop.update(!!tree, !moving, dt);
   const full = eco.totalCarried() >= eco.capacity();
   for (let i = 0; i < chopTicks; i++) {
     if (eco.add('log', 1) > 0) tree.pulse = 1;   // chopTicks>0 のとき tree は必ず非null
   }
-  // 満杯時は伐採演出を止める(働いてるのに増えない見た目を防ぐ)
-  if (chop.active && tree && !full) {
+  // 満杯時と移動中は伐採演出を止める(移動中は歩行アニメを優先)
+  if (chop.active && tree && !full && !moving) {
     chopping = true;
     // 伐採ボディバウンス(proto-a 437-442行)
     const w = chop.timer * (Math.PI * 2 / 0.3);

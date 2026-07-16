@@ -72,17 +72,19 @@ export function blobShadow(sx, sz, y) {
 }
 
 // レンダラ+シーン+カメラ+ライトの標準セットアップ
+// 明るくパステルな見た目(参照動画のプレイアブル広告の空気感)が基準。
+// THREE r155+ は物理ライティングがデフォルトなので、intensity は 1 以上が「普通の明るさ」。
 export function createRenderer() {
-  const BG = 0xe4eaf4;
+  const BG = 0xdceafc; // ほんのり青空
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(BG);
-  scene.fog = new THREE.Fog(BG, 42, 105);
+  scene.fog = new THREE.Fog(BG, 48, 110);
   const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 300);
-  scene.add(new THREE.HemisphereLight(0xf2f7ff, 0xcfc0a8, 0.72));
-  const sun = new THREE.DirectionalLight(0xffffff, 0.78);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xdde6f2, 1.55)); // 空=白 / 地面反射=明るい寒色
+  const sun = new THREE.DirectionalLight(0xfff2dd, 1.15);         // やや暖色の太陽
   sun.position.set(14, 30, 10);
   scene.add(sun);
   window.addEventListener('resize', () => {
