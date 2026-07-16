@@ -11,6 +11,18 @@ import { AREAS, areAreasAdjacent, RESOURCES } from './data.js';
 // および main.js の進入禁止クランプ(この値+0.3マージン)が参照する単一の真実。
 export const LAKE_WATER = { cx: 0, cz: -26, hw: 5.5, hd: 3.5 };
 
+// 矩形(中心cx,cz・半幅hx・半奥hz)内に pos があれば、最小貫入軸に沿って境界の少し外へ
+// 押し出す(壁ずり移動)。中心一致時は +方向へ寄せる。プレイヤー(main.js)とNPC(npc.js)の
+// 水面クランプで共有する(T12でmain.js内にあったものをT14で共有化)。
+const CLAMP_EPS = 0.05;
+export function pushOutOfRect(pos, cx, cz, hx, hz) {
+  const dx = pos.x - cx, dz = pos.z - cz;
+  if (Math.abs(dx) >= hx || Math.abs(dz) >= hz) return; // rect外なら何もしない
+  const penX = hx - Math.abs(dx), penZ = hz - Math.abs(dz);
+  if (penX < penZ) pos.x = cx + (dx >= 0 ? 1 : -1) * (hx + CLAMP_EPS);
+  else             pos.z = cz + (dz >= 0 ? 1 : -1) * (hz + CLAMP_EPS);
+}
+
 /* ================= ローポリ松の木 ================= */
 export function makeTree(scale) {
   const g = new THREE.Group();
@@ -114,8 +126,8 @@ function costLabel(cost) {
   return parts.join(' ');
 }
 
-// CanvasTexture のテキスト/絵文字スプライトを生成(進捗スプライトと同方式)
-function makeSprite(text, { cw = 256, ch = 128, font = 'bold 72px system-ui, sans-serif', sx = 2, sy = 1 } = {}) {
+// CanvasTexture のテキスト/絵文字スプライトを生成(進捗スプライトと同方式)。雇用パッド(main.js)でも再利用。
+export function makeSprite(text, { cw = 256, ch = 128, font = 'bold 72px system-ui, sans-serif', sx = 2, sy = 1 } = {}) {
   const canvas = document.createElement('canvas');
   canvas.width = cw; canvas.height = ch;
   const ctx = canvas.getContext('2d');

@@ -51,6 +51,44 @@ export class UI {
     this._refresh(); // 初期表示(💰 0)
   }
 
+  // ==== 雇用ダイアログ(仲間の小屋の雇用パッドで1秒静止したときに表示) ====
+  // 画面中央の軽いDOM。ゲームはポーズしない(toastと同様)。役割選択で onPick(role) を呼ぶ。
+  get hireOpen() { return !!this._hireEl; }
+
+  showHireDialog(cost, onPick) {
+    if (this._hireEl) return; // 二重表示防止
+    const backdrop = document.createElement('div');
+    backdrop.style.cssText = 'position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35)';
+    backdrop.addEventListener('pointerdown', e => e.stopPropagation()); // ダイアログ操作でジョイスティックを動かさない
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:18px;padding:20px 24px;display:flex;flex-direction:column;gap:12px;min-width:240px;box-shadow:0 8px 30px rgba(0,0,0,.4);text-align:center';
+    const title = document.createElement('div');
+    title.textContent = `仲間を雇う(💰${cost})`;
+    title.style.cssText = 'font-weight:900;font-size:18px;color:#243244';
+    box.appendChild(title);
+    const mkBtn = (label, role, bg) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = `padding:12px 16px;font-size:16px;font-weight:700;border:none;border-radius:12px;color:#fff;cursor:pointer;background:${bg}`;
+      b.addEventListener('click', () => { this._closeHire(); onPick(role); });
+      return b;
+    };
+    box.appendChild(mkBtn('🪓 伐採係', 'lumber', 'linear-gradient(135deg,#6bbf59,#3a8a2f)'));
+    box.appendChild(mkBtn('🎣 釣り係', 'fisher', 'linear-gradient(135deg,#4a9ede,#2a6ebe)'));
+    const cancel = document.createElement('button');
+    cancel.textContent = 'やめる';
+    cancel.style.cssText = 'padding:8px 16px;font-size:14px;font-weight:700;border:none;border-radius:12px;color:#333;background:#ddd;cursor:pointer';
+    cancel.addEventListener('click', () => this._closeHire());
+    box.appendChild(cancel);
+    backdrop.appendChild(box);
+    document.body.appendChild(backdrop);
+    this._hireEl = backdrop;
+  }
+
+  _closeHire() {
+    if (this._hireEl) { this._hireEl.remove(); this._hireEl = null; }
+  }
+
   // #toast に表示して1.6秒でフェードアウト(opacity遷移はindex.htmlのCSSにある)
   toast(text) {
     this.toastEl.textContent = text;
