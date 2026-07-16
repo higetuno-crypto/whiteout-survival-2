@@ -12,8 +12,18 @@ const FLIGHT_LOG_GEO = new THREE.CylinderGeometry(0.16, 0.16, 1.8, 9).rotateZ(Ma
 const FLIGHT_LOG_SIDE = lambert(0xb0703c);
 const FLIGHT_LOG_CAP = lambert(0xf3dfae);
 const FLIGHT_LOG_MATS = [FLIGHT_LOG_SIDE, FLIGHT_LOG_CAP, FLIGHT_LOG_CAP];
-const LOG_STEP = 0.31;       // 井桁スタックの段差
+const LOG_STEP = 0.31;       // 井桁スタックの段差(1段あたりの高さ)
+// 単列タワー(bigmarket40本=12m)だと高すぎるため、proto-aのdepotSlotLocal風に
+// 1段LOGS_PER_ROW本×行に広げるピラミッド積みへ変更(40本でも高さ約3m)。
+const LOGS_PER_ROW = 4;      // 1段に並べる丸太の本数
+const ROW_SPACING = 0.5;     // 同一段内の丸太間隔(木口が重ならない程度)
 const CRIB_Q = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, Math.PI / 2, 0)); // 奇数段の直交
+
+// easeOutBack(0→1)。proto-a 583-587行と同じ係数(BuildSite内で完成演出/goods出現の2箇所から使う)
+function easeOutBack(p) {
+  const c1 = 1.70158, c3 = c1 + 1;
+  return 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
+}
 
 // 調理フライト(T13): 生魚→焚き火→焼き魚。色/形はentities.jsのcreateKindMeshから複製して取得
 // (entities.js非改変。RAW_FISH_MAT/COOKED_FISH_MATは非exportのため、生成物から色だけ拝借する)。
@@ -119,8 +129,23 @@ export class BuildSite {
     this._drawProgress();
   }
 
-  // 井桁スタック i 段目のワールド座標(予定地中心の少し上へ積む)
-  _slot(i) { return new THREE.Vector3(this.x, 0.2 + i * LOG_STEP, this.z); }
+  // 井桁スタック i 本目のワールド座標。LOGS_PER_ROW本ごとに1段登り、段内は予定地中心を軸に
+  // 横へ広げる(proto-aのdepotSlotLocal風ピラミッド積み。単列タワーだと高さが出過ぎるため変更)。
+  _slot(i) {
+    const row = Math.floor(i / LOGS_PER_ROW);
+    const posInRow = i % LOGS_PER_ROW;
+    const offset = (posInRow - (LOGS_PER_ROW - 1) / 2) * ROW_SPACING;
+    const y = 0.2 + row * LOG_STEP;
+    return (row % 2 === 0)
+      ? new THREE.Vector3(this.x, y, this.z + offset)
+      : new THREE.Vector3(this.x + offset, y, this.z);
+  }
+
+  // i本目の向き(段の偶奇で90度交互=交互直交)
+  _slotQuat(i) {
+    const row = Math.floor(i / LOGS_PER_ROW);
+    return row % 2 === 1 ? CRIB_Q.clone() : new THREE.Quaternion();
+  }
 
   _drawProgress() {
     const ctx = this._ctx, c = this._canvas;
@@ -144,13 +169,12 @@ export class BuildSite {
     mesh.position.copy(fromWorld);
     this.scene.add(mesh);
     const i = this.progress;
-    const toQ = (i % 2 === 1) ? CRIB_Q.clone() : new THREE.Quaternion();
     this.flights.push({
       mesh,
       from: fromWorld.clone(),
       to: this._slot(i),
       fromQ: mesh.quaternion.clone(),
-      toQ,
+      toQ: this._slotQuat(i),
       t: 0,
     });
     this.progress++;
@@ -348,9 +372,7 @@ export class BuildSite {
     if (this.completeAnim) {
       this.completeAnim.t += dt;
       const p = Math.min(1, this.completeAnim.t / 0.4);
-      const c1 = 1.70158, c3 = c1 + 1;
-      const s = 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
-      this.completedMesh.scale.setScalar(Math.max(0.001, s));
+      this.completedMesh.scale.setScalar(Math.max(0.001, easeOutBack(p)));
       if (p >= 1) { this.completedMesh.scale.setScalar(1); this.completeAnim = null; }
     }
 
@@ -481,14 +503,12 @@ export class BuildSite {
       this.setStockVisual(this.stock);
     }
 
-    // T15 ranchPen: 未回収goodsの出現アニメ(completeAnimと同じeaseOutBack。proto-a 583-587行の係数)
+    // T15 ranchPen: 未回収goodsの出現アニメ(completeAnimと同じeaseOutBackヘルパーを共用)
     for (let i = this.goodsAnims.length - 1; i >= 0; i--) {
       const a = this.goodsAnims[i];
       a.t += dt;
       const p = Math.min(1, a.t / 0.35);
-      const c1 = 1.70158, c3 = c1 + 1;
-      const s = 1 + c3 * Math.pow(p - 1, 3) + c1 * Math.pow(p - 1, 2);
-      a.mesh.scale.setScalar(Math.max(0.001, s));
+      a.mesh.scale.setScalar(Math.max(0.001, easeOutBack(p)));
       if (p >= 1) { a.mesh.scale.setScalar(1); this.goodsAnims.splice(i, 1); }
     }
 
@@ -511,7 +531,13 @@ export class BuildSite {
     for (const m of this.buildLogs) this.scene.remove(m);
     this.buildLogs.length = 0;
     if (this.outline.parent) this.outline.parent.remove(this.outline);
+    // outlineのgeo/matはdashedRect()呼び出しごとに専有生成される(site固有。全子メッシュが同一インスタンスを共有)。
+    // 他サイトや共有のFLIGHT_LOG_*には触れない。
+    const outlineChild = this.outline.children[0];
+    if (outlineChild) { outlineChild.geometry.dispose(); outlineChild.material.dispose(); }
     if (this.progSprite.parent) this.progSprite.parent.remove(this.progSprite);
+    this._tex.dispose();
+    this.progSprite.material.dispose();
     // 完成メッシュを easeOutBack で出現
     const mesh = this._buildMesh();
     mesh.position.set(this.x, 0, this.z);
@@ -537,7 +563,7 @@ export class BuildSite {
     for (let i = 0; i < n; i++) {
       const mesh = new THREE.Mesh(FLIGHT_LOG_GEO, FLIGHT_LOG_MATS);
       mesh.position.copy(this._slot(i));
-      if (i % 2 === 1) mesh.quaternion.copy(CRIB_Q);
+      mesh.quaternion.copy(this._slotQuat(i));
       this.scene.add(mesh);
       this.buildLogs.push(mesh);
     }
