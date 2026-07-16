@@ -80,6 +80,13 @@ for (const id of unlockedAreas) {
 // 解錠済みに隣接する未解錠エリアにロックパッドを出す(クリーンセーブなら camp隣接の4つ)。
 world.refreshLockPads(unlockedAreas);
 
+// T15: fishHut/ranchPenのsite固有ストックを復元(サイトが存在する=対応エリア解錠済みのときだけ)。
+buildMgr.sites.get('fishhut')?.restoreStock(save.fishHutStock);
+buildMgr.sites.get('ranchpen')?.restoreFed(save.ranchFed);
+// T15【T10レビュー申し送り】bigmarketがセーブ復元時点で完成済みなら即座にhasMarket=trueにする。
+// 忘れるとリロードのたびに売値が黙って1倍に戻る(hasMarketはEconomyの一時状態でセーブに含まれないため)。
+if (buildMgr.sites.get('bigmarket')?.completed) eco.hasMarket = true;
+
 // 売店の自動売却 + マネータワー(T9のロジックはShopSystemへ抽出済み)。未回収金を復元。
 const shopSystem = new ShopSystem(scene, eco);
 shopSystem.restore(save.moneyTower);
@@ -108,6 +115,8 @@ function collectSave() {
     buildProgress: buildMgr.serialize(),
     npcs: npcMgr.serialize(),
     moneyTower: shopSystem.serialize(),
+    fishHutStock: buildMgr.sites.get('fishhut')?.stock ?? 0,
+    ranchFed: buildMgr.sites.get('ranchpen')?.fed ?? 0,
   };
 }
 // iOSプライベートモード等でlocalStorageのquota例外が飛ぶことがあるので握る。成功可否を返す。
@@ -274,6 +283,18 @@ const cook = new ProximityAction({ radius: 2.2, startDelay: 0.4, interval: 0.8, 
 const fireSite = buildMgr.sites.get('fire_camp');
 const _cookBackPos = new THREE.Vector3(); // 調理フライトの戻り先(毎フレームのVector3生成を回避)
 
+// T15製材(sawmill完成後、半径2.2m内で丸太を持っていると0.8秒ごとに板材へ変換。cookと同じ形)。
+// forestエリアは未解錠のことがあるのでsiteは毎フレームMap参照(fireSiteのように起動時定数化できない)。
+const saw = new ProximityAction({ radius: 2.2, startDelay: 0.4, interval: 0.8, requireStill: false });
+const _sawBackPos = new THREE.Vector3();
+
+// T15釣り小屋(fishHut完成後、半径2m内で0.1秒ごとに内部ストックを容量分だけ引き出す。納品と同じ形)。
+const fishCollect = new ProximityAction({ radius: 2.0, startDelay: 0, interval: 0.1, requireStill: false });
+
+// T15牧場(ranchPen完成後、半径2.2m内で魚を持っていると0.6秒ごとに1匹給餌。goodsが5個溜まったら給餌停止)。
+const ranchFeed = new ProximityAction({ radius: 2.2, startDelay: 0.4, interval: 0.6, requireStill: false });
+const RANCH_GOODS_PICK_RADIUS = 1.6; // ペン脇の未回収goodsに「触れる」判定半径
+
 // 納品はサイト単位ではなく「配達者(deliverer)」単位に(T14)。プレイヤーは自分のタイマーで
 // 最寄りの未完成サイトへ丸太を運ぶ。挙動はT8と不変(半径2.5m・0.1s間隔)。NPCは各自のアダプタを持つ。
 const playerDeliverer = {
@@ -370,6 +391,78 @@ function step(dt) {
       fireSite.cookFish(from, _cookBackPos);
     }
     fireSite.cooking = cook.active; // 調理中は炎を強める演出フラグ(BuildSite.updateが参照)
+  }
+
+  // T15製材(sawmill完成後、半径2.2m内で丸太を持っていると0.8秒ごとに板材へ1本変換。cookと同じ形)。
+  // forestが未解錠だとsiteはundefined(毎フレームMap参照。fire_campと違い起動時に存在保証がないため)。
+  const sawSite = buildMgr.sites.get('sawmill');
+  if (sawSite) {
+    const hasLog = (eco.resources.log ?? 0) > 0;
+    const sd = Math.hypot(player.root.position.x - sawSite.x, player.root.position.z - sawSite.z);
+    const atSaw = sawSite.completed && sd <= saw.radius;
+    const sawTicks = saw.update(atSaw && hasLog, true, dt);
+    for (let i = 0; i < sawTicks; i++) {
+      if (eco.take('log', 1) !== 1) break;
+      eco.resources.plank += 1; // 入れ替えなので直接加算(cookedFishと同じ理由)
+      const from = carrier.popVisualOf('log') ?? new THREE.Vector3(player.root.position.x, 1.7, player.root.position.z);
+      _sawBackPos.set(player.root.position.x, 1.8, player.root.position.z);
+      sawSite.craftItem(from, _sawBackPos, 'log', 'plank');
+    }
+  }
+
+  // T15釣り小屋(fishHut完成後、半径2m内で0.1秒ごとに内部ストックを1匹ずつ引き出しeco.add('rawFish',1)。
+  // 容量いっぱいならeco.addが0を返すので在庫は減らさず待つ(納品のtakeLogと対称の「容量分だけ」挙動)。
+  const fishHutSite = buildMgr.sites.get('fishhut');
+  if (fishHutSite) {
+    const fd = Math.hypot(player.root.position.x - fishHutSite.x, player.root.position.z - fishHutSite.z);
+    const atHut = fishHutSite.completed && fd <= fishCollect.radius && fishHutSite.stock > 0;
+    const collectTicks = fishCollect.update(atHut, true, dt);
+    for (let i = 0; i < collectTicks; i++) {
+      if (fishHutSite.stock <= 0) break;
+      const got = eco.add('rawFish', 1);
+      if (got <= 0) break; // 容量いっぱい
+      fishHutSite.stock -= 1;
+      fishHutSite.setStockVisual(fishHutSite.stock);
+      fishHutSite.spawnItemFlight('rawFish', fishHutSite.stockAnchor, new THREE.Vector3(player.root.position.x, 1.8, player.root.position.z));
+    }
+  }
+
+  // T15牧場(ranchPen完成後、半径2.2m内で魚(rawFish優先、なければcookedFish)を持っていると
+  // 0.6秒ごとに1匹給餌。未回収goodsが5個溜まったら給餌自体を止める(スペック通り)。
+  // ペン脇のgoodsに触れる(半径1.6m)と eco.add('goods',1) で1個ずつ回収。
+  const ranchSite = buildMgr.sites.get('ranchpen');
+  if (ranchSite) {
+    const rd = Math.hypot(player.root.position.x - ranchSite.x, player.root.position.z - ranchSite.z);
+    const feedKind = (eco.resources.rawFish ?? 0) > 0 ? 'rawFish' : ((eco.resources.cookedFish ?? 0) > 0 ? 'cookedFish' : null);
+    const canFeed = ranchSite.completed && rd <= ranchFeed.radius && feedKind && ranchSite.pendingGoods < 5;
+    const feedTicks = ranchFeed.update(canFeed, true, dt);
+    for (let i = 0; i < feedTicks; i++) {
+      const kind = (eco.resources.rawFish ?? 0) > 0 ? 'rawFish' : 'cookedFish';
+      if (eco.take(kind, 1) !== 1) break;
+      const from = carrier.popVisualOf(kind) ?? new THREE.Vector3(player.root.position.x, 1.7, player.root.position.z);
+      ranchSite.feedOne(from, kind);
+    }
+    if (ranchSite.pendingGoods > 0) {
+      const gd = Math.hypot(player.root.position.x - ranchSite.goodsAnchor.x, player.root.position.z - ranchSite.goodsAnchor.z);
+      if (gd <= RANCH_GOODS_PICK_RADIUS) {
+        while (ranchSite.pendingGoods > 0) {
+          const got = eco.add('goods', 1);
+          if (got <= 0) break; // 容量いっぱい
+          ranchSite.popGoods();
+        }
+      }
+    }
+  }
+
+  // T15大市場: 完成の瞬間にhasMarket=trueへ(以後sellPriceが1.5倍)。起動時に完成済みの場合の
+  // 復元はブート処理側(bigmarket?.completed → eco.hasMarket=true)で済んでいるので、ここは
+  // 「このセッション中に初めてtrueになった」瞬間だけ検知してトーストを出す。
+  if (!eco.hasMarket) {
+    const marketSite = buildMgr.sites.get('bigmarket');
+    if (marketSite?.completed) {
+      eco.hasMarket = true;
+      ui.toast('大市場オープン! 売値1.5倍');
+    }
   }
 
   world.update(dt);

@@ -15,6 +15,8 @@ export function defaultSave() {
     buildProgress: {},   // {facilityId: 納品済み丸太数}
     npcs: [],            // [{role:'lumber'|'fisher'}]
     moneyTower: 0,       // 売店脇に積まれた未回収の金額
+    fishHutStock: 0,      // 釣り小屋の内部ストック(0..10。T15)
+    ranchFed: 0,           // 牧場の総給餌数(T15。3匹ごとにgoods1個の算出基準)
   };
 }
 
@@ -30,6 +32,8 @@ function migrate(raw) {
   const num = (v, fb) => (Number.isFinite(v) ? v : fb);
   out.money = num(out.money, 0);
   out.moneyTower = num(out.moneyTower, 0);
+  out.fishHutStock = num(out.fishHutStock, 0);
+  out.ranchFed = num(out.ranchFed, 0);
   for (const k of Object.keys(out.resources)) out.resources[k] = num(out.resources[k], 0);
   for (const k of Object.keys(out.upgrades)) out.upgrades[k] = num(out.upgrades[k], 0);
   if (!out.buildProgress || typeof out.buildProgress !== 'object' || Array.isArray(out.buildProgress)) out.buildProgress = {};

@@ -71,3 +71,18 @@ test('npcs/moneyTowerを含む往復', () => {
   persist(s, a);
   assert.deepEqual(load(s).save, a);
 });
+
+test('fishHutStock/ranchFedの型サニタイズ + 往復(T15)', () => {
+  const raw = { version: 1, fishHutStock: 'x', ranchFed: null };
+  const s = memStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+  const { save, corrupted } = load(s);
+  assert.equal(corrupted, false);
+  assert.equal(save.fishHutStock, 0);
+  assert.equal(save.ranchFed, 0);
+
+  const s2 = memStorage();
+  const a = defaultSave();
+  a.fishHutStock = 7; a.ranchFed = 12;
+  persist(s2, a);
+  assert.deepEqual(load(s2).save, a);
+});
