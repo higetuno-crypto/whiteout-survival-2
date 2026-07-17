@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { lambert } from './render.js';
 import { createKindMesh } from './entities.js';
 import { ProximityAction } from './proximity.js';
+import { sfx } from './sfx.js';
 
 // 売却対象の優先順。丸太は建材なので最後(高価な物から売り、丸太は他に売る物が無いときだけ)。
 // 丸太を末尾に入れているのは序盤の資金源のため: 最初の収入(湖解錠の💰100)は丸太売りで稼ぐ設計。
@@ -126,6 +127,7 @@ export class MoneyTower {
         f.mesh.scale.setScalar(1);
         this.pool.push(f.mesh);
         this.flights.splice(i, 1);
+        sfx.coin();                  // 札束がプレイヤーに届いた瞬間(連続でピッチ上昇。G5)
       }
     }
   }
@@ -182,6 +184,7 @@ export class ShopSystem {
         this.scene.remove(f.mesh);
         this.sellPool[f.kind].push(f.mesh);
         this.sellFlights.splice(i, 1);
+        sfx.pop(f.to.x, f.to.z);     // 売却品が売店に届いたポコッ(G5)
       }
     }
   }

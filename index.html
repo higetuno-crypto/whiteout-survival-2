@@ -13,6 +13,8 @@ canvas{display:block}
   align-items:flex-end;pointer-events:none}
 .chip{background:rgba(80,80,80,.75);color:#fff;font-weight:700;font-size:16px;
   padding:8px 16px;border-radius:18px;letter-spacing:.5px}
+.chip.punch{animation:chipPunch .28s ease-out}
+@keyframes chipPunch{30%{transform:scale(1.22)}100%{transform:scale(1)}}
 #title{position:fixed;top:0;left:0;right:0;display:flex;justify-content:center;z-index:10;pointer-events:none}
 #title span{background:linear-gradient(135deg,#4a9ede,#2a6ebe);color:#fff;padding:6px 20px;
   border-radius:0 0 16px 16px;font-weight:900;font-size:14px;letter-spacing:2px}
@@ -36,6 +38,7 @@ canvas{display:block}
   "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
   "./js/data.js":"./js/data.js?v=1",
   "./js/nav.js":"./js/nav.js?v=1",
+  "./js/sfx.js":"./js/sfx.js?v=1",
   "./js/economy.js":"./js/economy.js?v=1",
   "./js/save.js":"./js/save.js?v=1",
   "./js/proximity.js":"./js/proximity.js?v=1",

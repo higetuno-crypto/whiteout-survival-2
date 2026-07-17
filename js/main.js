@@ -11,6 +11,7 @@ import { NpcManager } from './npc.js';
 import { load, persist, CURRENT_VERSION, SAVE_KEY } from './save.js';
 import { AREAS, areAreasAdjacent, NPC_HIRE_COSTS } from './data.js';
 import { clampFenceWalls } from './nav.js';
+import { sfx } from './sfx.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -182,6 +183,7 @@ function completeUnlock(id, area) {
   world.refreshLockPads(unlockedAreas);  // このパッドは撤去(シュリンク)され、新たな隣接パッドが出る
   saveNow();
   ui.toast(`${area.name}を解放!`);
+  sfx.fanfare();                         // 解放ファンファーレ(G5)
 }
 // 毎フレーム: 半径内のパッドへ支払いを進める。step()から呼ばれる。
 function updatePadDelivery(dt, moving) {
@@ -561,6 +563,7 @@ function syncGateArches(animated) {
 
 function step(dt) {
   pollKeys();
+  sfx.setListener(player.root.position.x, player.root.position.z); // 距離減衰の基準(G5)
   const mv = Math.hypot(input.x, input.z);
   const moving = mv > 0.01;
   if (moving) {
@@ -590,7 +593,7 @@ function step(dt) {
   const chopTicks = chop.update(!!tree, !moving, dt);
   const full = eco.totalCarried() >= eco.capacity();
   for (let i = 0; i < chopTicks; i++) {
-    if (eco.add('log', 1) > 0) tree.pulse = 1;   // chopTicks>0 のとき tree は必ず非null
+    if (eco.add('log', 1) > 0) { tree.pulse = 1; sfx.chop(); } // chopTicks>0 のとき tree は必ず非null
   }
   // 満杯時と移動中は伐採演出を止める(移動中は歩行アニメを優先)
   if (chop.active && tree && !full && !moving) {
@@ -620,6 +623,7 @@ function step(dt) {
     if (eco.add('rawFish', 1) > 0) {                        // 容量があるときだけ釣れる
       _backPos.set(player.root.position.x, 1.8, player.root.position.z); // 背中付近を狙う
       world.spawnFishCatch(_backPos);                       // 水面→背中フライト + 水しぶき
+      sfx.pop();                                            // 釣り上げポコッ(G5)
     }
   }
   // 釣り中の演出: 竿なし・体を軽く揺らす(満杯時は演出停止=働いても増えない見た目を防ぐ)。

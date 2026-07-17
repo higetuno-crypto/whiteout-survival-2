@@ -127,6 +127,13 @@ export class UI {
   _refresh() {
     const eco = this.eco;
     this.moneyChip.textContent = `💰 ${eco.money}`;
+    // 金が増えたらチップを跳ねさせる(数字が跳ねる感覚。G5)。class再付与でアニメを再発火
+    if (eco.money > (this._lastMoney ?? eco.money)) {
+      this.moneyChip.classList.remove('punch');
+      void this.moneyChip.offsetWidth;
+      this.moneyChip.classList.add('punch');
+    }
+    this._lastMoney = eco.money;
     for (const [k, def] of Object.entries(RESOURCES)) {
       const n = eco.resources[k] ?? 0;
       const c = this.resChips[k];

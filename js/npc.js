@@ -9,6 +9,7 @@ import { pushOutOfRect, LAKE_WATER } from './world.js';
 import { ProximityAction } from './proximity.js';
 import { AREAS } from './data.js';
 import { clampFenceWalls, gateWaypoint } from './nav.js';
+import { sfx } from './sfx.js';
 
 const NPC_SPEED = 3.4;                          // プレイヤー(4.3〜)よりやや遅い固定値
 const FACE_RATE = 10;                           // 向き補間レート(プレイヤーは11)
@@ -142,7 +143,7 @@ export class Npc {
         this._stand(dt);
         const full = this.count >= cap;
         const ticks = this.workTimer.update(!full, false, dt); // 満杯なら止める(働いても増えない見た目を防ぐ)
-        for (let i = 0; i < ticks; i++) { if (this.count >= cap) break; this.count += 1; t.pulse = 1; }
+        for (let i = 0; i < ticks; i++) { if (this.count >= cap) break; this.count += 1; t.pulse = 1; sfx.chop(t.x, t.z); }
         if (this.count >= cap) { this._releaseTree(); this.state = 'toDeliver'; }
         break;
       }
@@ -214,6 +215,7 @@ export class Npc {
           this.count += 1;
           this._backPos.set(this.root.position.x, 1.8, this.root.position.z);
           world.spawnFishCatch(this._backPos); // 水面→背中フライト + 水しぶき(プレイヤーと同じ演出)
+          sfx.pop(this.root.position.x, this.root.position.z); // 釣り上げポコッ(G5)
         }
         if (this.count >= cap) this.state = 'toShop';
         break;
