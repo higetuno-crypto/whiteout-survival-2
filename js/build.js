@@ -340,9 +340,16 @@ export class BuildSite {
     return true;
   }
 
-  // セーブ復元(給餌数のみ。未回収goodsの見た目は再現しない=リロードで消える簡略仕様)
+  // セーブ復元(給餌数)
   restoreFed(n) {
     this.fed = Math.max(0, Math.trunc(n) || 0);
+  }
+
+  // セーブ復元(未回収goods)。iOS Safariのタブリロードで「給餌済みの価値」が消えないように
+  // T16でセーブ対象化した(統合レビュー指摘)。出現演出つきで n 個並べ直す。
+  restorePending(n) {
+    const count = Math.min(5, Math.max(0, Math.trunc(n) || 0));
+    for (let i = 0; i < count; i++) this._spawnGoods();
   }
 
   update(dt) {

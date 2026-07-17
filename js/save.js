@@ -17,6 +17,7 @@ export function defaultSave() {
     moneyTower: 0,       // 売店脇に積まれた未回収の金額
     fishHutStock: 0,      // 釣り小屋の内部ストック(0..10。T15)
     ranchFed: 0,           // 牧場の総給餌数(T15。3匹ごとにgoods1個の算出基準)
+    ranchPending: 0,       // 牧場の未回収goods個数(T16。リロードで消えないように)
     padPaid: {},           // {areaId: {money, log}} 解錠パッドへの部分支払い(T16)
   };
 }
@@ -35,6 +36,7 @@ function migrate(raw) {
   out.moneyTower = num(out.moneyTower, 0);
   out.fishHutStock = num(out.fishHutStock, 0);
   out.ranchFed = num(out.ranchFed, 0);
+  out.ranchPending = num(out.ranchPending, 0);
   for (const k of Object.keys(out.resources)) out.resources[k] = num(out.resources[k], 0);
   for (const k of Object.keys(out.upgrades)) out.upgrades[k] = num(out.upgrades[k], 0);
   if (!out.buildProgress || typeof out.buildProgress !== 'object' || Array.isArray(out.buildProgress)) out.buildProgress = {};

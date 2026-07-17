@@ -29,7 +29,23 @@ canvas{display:block}
   background:rgba(0,0,0,.5);color:#0f0;font:12px monospace;padding:8px;border-radius:8px}
 #debug button{font:12px monospace;pointer-events:auto}
 </style>
-<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"}}</script>
+<!-- GAME_V: コードを更新して配布するときは、下の importmap と最下部 main.js の「?v=」を1つ上げる。
+     こうしないとブラウザ(特にiPhone Safari)が古いjsモジュールをキャッシュし続け、
+     新旧混在で壊れることがある(?v=はHTMLからの参照にしか効かないため、全モジュールをここで束ねる)。 -->
+<script type="importmap">{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "./js/data.js":"./js/data.js?v=1",
+  "./js/economy.js":"./js/economy.js?v=1",
+  "./js/save.js":"./js/save.js?v=1",
+  "./js/proximity.js":"./js/proximity.js?v=1",
+  "./js/render.js":"./js/render.js?v=1",
+  "./js/entities.js":"./js/entities.js?v=1",
+  "./js/world.js":"./js/world.js?v=1",
+  "./js/build.js":"./js/build.js?v=1",
+  "./js/shop.js":"./js/shop.js?v=1",
+  "./js/npc.js":"./js/npc.js?v=1",
+  "./js/ui.js":"./js/ui.js?v=1"
+}}</script>
 </head>
 <body>
 <div id="title"><span>❄️ 雪原サバイバル2</span></div>
@@ -48,6 +64,6 @@ window.__cdnTimer = setTimeout(() => {
   }
 }, 8000);
 </script>
-<script type="module" src="./js/main.js"></script>
+<script type="module" src="./js/main.js?v=1"></script>
 </body>
 </html>

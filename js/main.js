@@ -8,7 +8,7 @@ import { ShopSystem } from './shop.js';
 import { ProximityAction } from './proximity.js';
 import { UI } from './ui.js';
 import { NpcManager } from './npc.js';
-import { load, persist, CURRENT_VERSION } from './save.js';
+import { load, persist, CURRENT_VERSION, SAVE_KEY } from './save.js';
 import { AREAS, areAreasAdjacent, NPC_HIRE_COSTS } from './data.js';
 
 window.__booted = true;
@@ -87,6 +87,7 @@ syncGateArches(false);
 // T15: fishHut/ranchPenのsite固有ストックを復元(サイトが存在する=対応エリア解錠済みのときだけ)。
 buildMgr.sites.get('fishhut')?.restoreStock(save.fishHutStock);
 buildMgr.sites.get('ranchpen')?.restoreFed(save.ranchFed);
+buildMgr.sites.get('ranchpen')?.restorePending(save.ranchPending);
 // T15【T10レビュー申し送り】bigmarketがセーブ復元時点で完成済みなら即座にhasMarket=trueにする。
 // 忘れるとリロードのたびに売値が黙って1倍に戻る(hasMarketはEconomyの一時状態でセーブに含まれないため)。
 if (buildMgr.sites.get('bigmarket')?.completed) eco.hasMarket = true;
@@ -122,10 +123,13 @@ function collectSave() {
     padPaid,                              // 解錠パッドへの部分支払い(FB反映: 途中まで払った分を保持)
     fishHutStock: buildMgr.sites.get('fishhut')?.stock ?? 0,
     ranchFed: buildMgr.sites.get('ranchpen')?.fed ?? 0,
+    ranchPending: buildMgr.sites.get('ranchpen')?.pendingGoods ?? 0,
   };
 }
 // iOSプライベートモード等でlocalStorageのquota例外が飛ぶことがあるので握る。成功可否を返す。
+let saveEnabled = true; // デバッグの「セーブ消去」がリロード直前の自動保存で復活しないように
 const saveNow = () => {
+  if (!saveEnabled) return false;
   try {
     persist(localStorage, collectSave());
     return true;
@@ -256,6 +260,38 @@ function onHirePick(role) {
   npcMgr.hire(role);
   saveNow();
   ui.toast(role === 'lumber' ? '🪓 伐採係を雇った!' : '🎣 釣り係を雇った!');
+}
+
+// ==== 降雪(Points。プレイヤー追従の70m箱で降らせ、下に抜けたら上へ戻す) ====
+const SNOW_N = 300;
+const _snowPos = new Float32Array(SNOW_N * 3);
+const _snowVel = new Float32Array(SNOW_N);
+for (let i = 0; i < SNOW_N; i++) {
+  _snowPos[i * 3] = (Math.random() - 0.5) * 70;
+  _snowPos[i * 3 + 1] = Math.random() * 22;
+  _snowPos[i * 3 + 2] = (Math.random() - 0.5) * 70;
+  _snowVel[i] = 1.0 + Math.random() * 1.4;
+}
+const snowPtsGeo = new THREE.BufferGeometry();
+snowPtsGeo.setAttribute('position', new THREE.BufferAttribute(_snowPos, 3));
+const snowPts = new THREE.Points(snowPtsGeo, new THREE.PointsMaterial({
+  color: 0xffffff, size: 0.16, transparent: true, opacity: 0.85, sizeAttenuation: true,
+}));
+snowPts.frustumCulled = false; // 箱がプレイヤー追従で動くためカリングしない
+scene.add(snowPts);
+function updateSnow(dt, t) {
+  snowPts.position.set(player.root.position.x, 0, player.root.position.z);
+  for (let i = 0; i < SNOW_N; i++) {
+    let y = _snowPos[i * 3 + 1] - _snowVel[i] * dt;
+    _snowPos[i * 3] += Math.sin(t * 0.8 + i) * 0.35 * dt; // 横のゆらぎ
+    if (y < 0) {
+      y = 22;
+      _snowPos[i * 3] = (Math.random() - 0.5) * 70;
+      _snowPos[i * 3 + 2] = (Math.random() - 0.5) * 70;
+    }
+    _snowPos[i * 3 + 1] = y;
+  }
+  snowPtsGeo.attributes.position.needsUpdate = true;
 }
 
 // ==== 目標ガイド(オーナーFB: 何をすればいいか分からない対策) ====
@@ -609,9 +645,10 @@ function step(dt) {
   // 柵完成後、解錠済み隣接エリア向きのゲートにアーチを立てる(冪等・軽量)
   syncGateArches(true);
 
-  // 目標ガイド(矢印+ヒント)
+  // 目標ガイド(矢印+ヒント)と降雪
   elapsed += dt;
   updateGoalArrow(dt, elapsed);
+  updateSnow(dt, elapsed);
 
   // 雇用パッド(小屋完成後): 半径2m内で1秒静止 → 雇用ダイアログ。ダイアログ表示中は蓄積しない。
   ensureHirePad();
@@ -653,7 +690,9 @@ function step(dt) {
 }
 function loop() {
   requestAnimationFrame(loop);
-  step(Math.min(clock.getDelta(), 0.05));
+  const dt = Math.min(clock.getDelta(), 0.05);
+  step(dt);
+  window.__fpsTick?.(dt); // デバッグ時のfps計測(非デバッグ時はundefinedで素通り)
   renderer.render(scene, camera);
 }
 loop(); // 同期の初回実行で、非表示タブでも初回1フレームは必ず出る
@@ -687,5 +726,23 @@ if (DEBUG) {
       saveNow();
     },
   };
-  document.getElementById('debug').style.display = 'flex';
+  // デバッグパネル: fps表示 + セーブ消去(自動保存を止めてから消す=リロード直前の復活防止)
+  const dbg = document.getElementById('debug');
+  const fpsEl = document.createElement('div');
+  fpsEl.textContent = 'fps: -';
+  dbg.appendChild(fpsEl);
+  let fpsFrames = 0, fpsTime = 0;
+  window.__fpsTick = dt => {
+    fpsFrames++; fpsTime += dt;
+    if (fpsTime >= 0.5) { fpsEl.textContent = `fps: ${Math.round(fpsFrames / fpsTime)}`; fpsFrames = 0; fpsTime = 0; }
+  };
+  const wipeBtn = document.createElement('button');
+  wipeBtn.textContent = '🗑 セーブ消去してリロード';
+  wipeBtn.addEventListener('click', () => {
+    saveEnabled = false;
+    localStorage.removeItem(SAVE_KEY);
+    location.reload();
+  });
+  dbg.appendChild(wipeBtn);
+  dbg.style.display = 'flex';
 }
