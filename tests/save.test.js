@@ -72,19 +72,58 @@ test('npcs/moneyTowerを含む往復', () => {
   assert.deepEqual(load(s).save, a);
 });
 
-test('fishHutStock/ranchFedの型サニタイズ + 往復(T15)', () => {
-  const raw = { version: 1, fishHutStock: 'x', ranchFed: null };
+test('farmStock/ranchFedの型サニタイズ + 往復(FB3。farmStockはfishHutStock後継)', () => {
+  const raw = { version: 2, farmStock: 'x', ranchFed: null };
   const s = memStorage({ [SAVE_KEY]: JSON.stringify(raw) });
   const { save, corrupted } = load(s);
   assert.equal(corrupted, false);
-  assert.equal(save.fishHutStock, 0);
+  assert.equal(save.farmStock, 0);
   assert.equal(save.ranchFed, 0);
 
   const s2 = memStorage();
   const a = defaultSave();
-  a.fishHutStock = 7; a.ranchFed = 12;
+  a.farmStock = 7; a.ranchFed = 12;
   persist(s2, a);
   assert.deepEqual(load(s2).save, a);
+});
+
+// ===== FB3: 新資源wheat・farmStock・新ロール・旧フィールド撤去 =====
+test('defaultSave: wheat在庫・farmStockを持ち、depotAuto/fishHutStockは持たない', () => {
+  const d = defaultSave();
+  assert.equal(d.resources.wheat, 0);
+  assert.equal(d.depotStored.wheat, 0);
+  assert.equal(d.farmStock, 0);
+  assert.equal(d.version, 2);
+  assert.ok(!('depotAuto' in d), 'depotAutoは撤去');
+  assert.ok(!('fishHutStock' in d), 'fishHutStockは撤去');
+});
+
+test('depotStoredはwheatを含む4種にサニタイズされる', () => {
+  const raw = { version: 2, depotStored: { log: 5, rawFish: 'x', cookedFish: 3, wheat: null, junk: 9 } };
+  const s = memStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+  const { save } = load(s);
+  assert.deepEqual(save.depotStored, { log: 5, rawFish: 0, cookedFish: 3, wheat: 0 });
+});
+
+test('新ロール(farmer/cook/merchant)は往復し、不正ロールは除去', () => {
+  const raw = { version: 2, npcs: [{ role: 'farmer' }, { role: 'cook' }, { role: 'merchant' }, { role: 'wizard' }, { role: 'lumber' }] };
+  const s = memStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+  assert.deepEqual(load(s).save.npcs, [{ role: 'farmer' }, { role: 'cook' }, { role: 'merchant' }, { role: 'lumber' }]);
+});
+
+test('v1セーブ(depotAuto/fishHutStock付き)を壊さず読める(前方互換・撤去フィールドは無視)', () => {
+  const raw = { version: 1, money: 200, depotAuto: { process: 300, sell: 100 }, fishHutStock: 8,
+                depotStored: { log: 4, rawFish: 2, cookedFish: 1 } };
+  const s = memStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+  const { save, corrupted } = load(s);
+  assert.equal(corrupted, false);
+  assert.equal(save.money, 200);
+  assert.equal(save.version, 2);
+  assert.ok(!('depotAuto' in save));
+  assert.ok(!('fishHutStock' in save));
+  assert.equal(save.depotStored.wheat, 0);      // 旧3種セーブにwheatが補完される
+  assert.equal(save.depotStored.log, 4);
+  assert.equal(save.farmStock, 0);
 });
 
 test('padPaidのサニタイズ: 未知エリア/型破損を捨て、数値を矯正(T16)', () => {

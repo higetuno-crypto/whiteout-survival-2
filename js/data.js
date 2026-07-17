@@ -5,26 +5,32 @@ export const RESOURCES = {
   log:        { name: '丸太',   emoji: '🪵' },
   rawFish:    { name: '生魚',   emoji: '🐟' },
   cookedFish: { name: '焼き魚', emoji: '🍖' },
+  wheat:      { name: '小麦',   emoji: '🌾' }, // FB3: 農場で採れ、加工なしで直接売れる中位作物
   plank:      { name: '板材',   emoji: '🪚' },
   goods:      { name: '特産品', emoji: '🎁' },
 };
 
-export const PRICES = { log: 3, rawFish: 5, cookedFish: 12, plank: 15, goods: 40 };
+export const PRICES = { log: 3, rawFish: 5, cookedFish: 12, wheat: 9, plank: 15, goods: 40 };
 export const MARKET_MULT = 1.5; // 大市場解錠後の売値倍率
 
+// NPCロール(採取3種=lumber/fisher/farmer、運転2種=cook/merchant)。save/ui/npcで共有。
+export const NPC_ROLES = ['lumber', 'fisher', 'farmer', 'cook', 'merchant'];
+
 // cx/cz(中心)・hw/hd(半幅/半奥行)はワールド座標(m)。campを原点に隣接配置
+// icon: ロックパッド(未解錠の白枠)で「何が建つか」を示す絵文字(FB4)
 export const AREAS = [
-  { id: 'camp',    name: 'スタートキャンプ', cost: {},                      cx: 0,   cz: 0,   hw: 13, hd: 10 },
-  { id: 'lake',    name: '湖',               cost: { money: 65 },           cx: 0,   cz: -26, hw: 13, hd: 10 },
-  { id: 'forest',  name: '森',               cost: { money: 250, log: 20 }, cx: -30, cz: 0,   hw: 13, hd: 10 },
-  { id: 'hut',     name: '仲間の小屋',       cost: { money: 400 },          cx: 30,  cz: 0,   hw: 13, hd: 10 },
-  { id: 'fishery', name: '漁場',             cost: { money: 700, log: 40 }, cx: 30,  cz: -26, hw: 13, hd: 10 },
-  { id: 'ranch',   name: '牧場',             cost: { money: 1200 },         cx: -30, cz: -26, hw: 13, hd: 10 },
-  { id: 'market',  name: '大市場',           cost: { money: 2000, log: 80 },cx: 0,   cz: 26,  hw: 13, hd: 10 },
+  { id: 'camp',    name: 'スタートキャンプ', icon: '🏕️', cost: {},                      cx: 0,   cz: 0,   hw: 13, hd: 10 },
+  { id: 'lake',    name: '湖',               icon: '🎣', cost: { money: 65 },           cx: 0,   cz: -26, hw: 13, hd: 10 },
+  { id: 'forest',  name: '森',               icon: '🌲', cost: { money: 250, log: 20 }, cx: -30, cz: 0,   hw: 13, hd: 10 },
+  { id: 'hut',     name: '仲間の小屋',       icon: '🏠', cost: { money: 400 },          cx: 30,  cz: 0,   hw: 13, hd: 10 },
+  // FB1: 漁場→農場(小麦)。id は互換のため 'fishery' を維持(unlockedAreas/padPaid が参照)
+  { id: 'fishery', name: '農場',             icon: '🌾', cost: { money: 700, log: 40 }, cx: 30,  cz: -26, hw: 13, hd: 10 },
+  { id: 'ranch',   name: '牧場',             icon: '🐧', cost: { money: 1200 },         cx: -30, cz: -26, hw: 13, hd: 10 },
+  { id: 'market',  name: '大市場',           icon: '🏪', cost: { money: 2000, log: 80 },cx: 0,   cz: 26,  hw: 13, hd: 10 },
 ];
 
 // kind: fence(柵) / bridge(橋) / shop(売店) / campfire(焚き火) / sawmill(製材所)
-//       npcHut(仲間の小屋) / fishHut(釣り小屋) / ranchPen(牧場の柵) / market(大市場)
+//       npcHut(仲間の小屋) / farm(農場) / ranchPen(牧場の柵) / market(大市場)
 // lx/lz はエリア中心からのローカル座標
 export const FACILITIES = [
   { id: 'fence_camp',   areaId: 'camp',    kind: 'fence',    costLogs: 20, lx: 0,    lz: 0 },
@@ -34,7 +40,7 @@ export const FACILITIES = [
   { id: 'bridge_lake',  areaId: 'lake',    kind: 'bridge',   costLogs: 15, lx: 0,    lz: 12 },
   { id: 'sawmill',      areaId: 'forest',  kind: 'sawmill',  costLogs: 25, lx: 0,    lz: 0 },
   { id: 'npchut',       areaId: 'hut',     kind: 'npcHut',   costLogs: 20, lx: 0,    lz: 0 },
-  { id: 'fishhut',      areaId: 'fishery', kind: 'fishHut',  costLogs: 30, lx: 0,    lz: 0 },
+  { id: 'farm',         areaId: 'fishery', kind: 'farm',     costLogs: 30, lx: 0,    lz: 0 }, // FB1: 漁場の釣り小屋を農場へ
   { id: 'ranchpen',     areaId: 'ranch',   kind: 'ranchPen', costLogs: 35, lx: 0,    lz: 0 },
   { id: 'bigmarket',    areaId: 'market',  kind: 'market',   costLogs: 40, lx: 0,    lz: 0 },
 ];
