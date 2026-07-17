@@ -7,6 +7,7 @@ import { lambert, mergeGeos, roundedRectShape } from './render.js';
 import { FACILITIES, AREAS, RESOURCES } from './data.js';
 import { createKindMesh } from './entities.js';
 import { sfx } from './sfx.js';
+import { confetti } from './fx.js';
 
 // 納品フライト/建設中スタック用の丸太(X軸に寝かせた円柱)。モジュールで1回だけ生成して共有。
 const FLIGHT_LOG_GEO = new THREE.CylinderGeometry(0.16, 0.16, 1.8, 9).rotateZ(Math.PI / 2);
@@ -467,7 +468,8 @@ export class BuildSite {
     // 完成: 全数納品済み & フライトが空
     if (!this.completed && this.progress >= this.f.costLogs && this.flights.length === 0) {
       this._complete();
-      sfx.complete(this.x, this.z); // 自然完成のみ鳴らす(forceComplete=セーブ復元/チートでは無音)
+      sfx.complete(this.x, this.z);            // 自然完成のみ(forceComplete=セーブ復元/チートでは無し)
+      confetti.burst(this.x, 1.8, this.z, 20); // 完成のミニ紙吹雪(G5)
     }
 
     // 完成メッシュ出現(proto-a 583-587行 easeOutBack)

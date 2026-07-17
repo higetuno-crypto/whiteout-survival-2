@@ -12,6 +12,7 @@ import { load, persist, CURRENT_VERSION, SAVE_KEY } from './save.js';
 import { AREAS, areAreasAdjacent, NPC_HIRE_COSTS } from './data.js';
 import { clampFenceWalls } from './nav.js';
 import { sfx } from './sfx.js';
+import { confetti } from './fx.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -72,6 +73,7 @@ const carrier = new StackCarrier(player.root);
 // ワールド(エリアごとのコンテンツ)と建設マネージャ。
 const world = new World(scene);
 const buildMgr = new BuildManager(scene, world, eco);
+confetti.init(scene); // 祝祭パーティクル(G5)。以後どのモジュールからでもburstできる
 
 // 起動時: 解錠済みエリア(T10で保持していた unlockedAreas。campは常に含む)の地形+木+施設を復元。
 // campの土地面/木・fence_camp/shop_camp/fire_camp もこのループ経由で生成される(演出なし)。
@@ -176,6 +178,7 @@ function padLabelText(rem) {
 }
 // 全額支払われたパッドの解放処理(旧tryUnlockの演出部分)
 function completeUnlock(id, area) {
+  const pad = world.lockPads.get(id);    // 紙吹雪の発生点(refreshで撤去される前に取る)
   world.buildAreaTerrain(area, true);    // 出現演出つきで地形+木
   buildMgr.spawnSitesForArea(id, save.buildProgress);
   unlockedAreas.push(id);
@@ -184,6 +187,7 @@ function completeUnlock(id, area) {
   saveNow();
   ui.toast(`${area.name}を解放!`);
   sfx.fanfare();                         // 解放ファンファーレ(G5)
+  if (pad) confetti.burst(pad.x, 2.2, pad.z, 50); // 祝祭の紙吹雪(G5)
 }
 // 毎フレーム: 半径内のパッドへ支払いを進める。step()から呼ばれる。
 function updatePadDelivery(dt, moving) {
@@ -740,6 +744,7 @@ function step(dt) {
   }
 
   world.update(dt);
+  confetti.update(dt);
 
   // エリア解錠: パッドに近づくと丸太/お金が自動で納品されて積まれる(建設と同じ操作感)。
   updatePadDelivery(dt, moving);
