@@ -94,7 +94,7 @@ export class BuildSite {
     // T15: 単純な放物線1本フライト(fishHutストック回収・ranchPen給餌の共通実装)
     this.itemFlights = [];    // {mesh, from, to, t, dur, height}
 
-    // T15: fishHut(釣り小屋)の内部ストック(0..10、セーブ対象=main.jsのfishHutStock)。
+    // 内部ストック(farm=小麦の自動成長ぶん。セーブ対象=save.farmStock。旧fishHutから流用)。
     this.stock = 0;
     this._stockTimer = 0;        // 4秒毎の自動生産アキュムレータ
     this._stockMeshes = [];      // 表示中の魚メッシュ(最大5)
@@ -262,7 +262,7 @@ export class BuildSite {
     this.itemFlights.push({ mesh, from: fromWorld.clone(), to: target.clone(), t: 0, dur, height });
   }
 
-  /* ============== T15 fishHut: 内部ストック(0..10)の表示(moneyTowerと同方式) ============== */
+  /* ============== 内部ストック表示(farm=小麦。moneyTowerと同方式。旧fishHutから流用) ============== */
   _ensureStockSprite() {
     if (this._stockSprite) return;
     this._stockCanvas = document.createElement('canvas');
@@ -691,7 +691,7 @@ export class BuildSite {
       case 'campfire': return this._campfireMesh();
       case 'bridge':   return this._bridgeMesh();
       case 'sawmill':  return this._sawmillMesh();
-      case 'fishHut':  return this._fishHutMesh();
+      case 'farm':     return this._farmMesh();
       case 'ranchPen': return this._ranchPenMesh();
       case 'market':   return this._marketMesh();
       default:         return this._signMesh();
@@ -844,36 +844,40 @@ export class BuildSite {
   }
 
   // T15釣り小屋: 小屋(箱+四角錐屋根+ドア) + 脇の魚網ポール2本+網パネル
-  _fishHutMesh() {
+  // FB1 農場: 赤い納屋 + 耕した畝(茶色)に小麦がそよぐ畑。かわいいローポリ。
+  _farmMesh() {
     const g = new THREE.Group();
-    const wall = lambert(0xd8b56a);
-    const roofMat = lambert(0x6e4c30);
-    const doorMat = lambert(0x4a3220);
-    const poleMat = lambert(0x8a5a33);
-    const netMat = lambert(0xcac4b0, { transparent: true, opacity: 0.85 });
+    const barnMat = lambert(0xc0533f);   // 赤い納屋
+    const roofMat = lambert(0xf4f4f2);   // 雪が積もった白い屋根
+    const doorMat = lambert(0x6e4c30);
+    const soilMat = lambert(0x7a5230);   // 耕した土
+    const wheatStalk = lambert(0xe4c24e);// 小麦(穂)
 
-    const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.4, 1.8), wall);
-    body.position.y = 0.7;
-    g.add(body);
-
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.7, 0.9, 4), roofMat);
-    roof.position.y = 1.85;
+    // 納屋(奥に寄せて畑スペースを空ける)
+    const barn = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.5, 1.8), barnMat);
+    barn.position.set(-1.6, 0.75, -1.6);
+    g.add(barn);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.7, 0.8, 4), roofMat);
+    roof.position.set(-1.6, 1.9, -1.6);
     roof.rotation.y = Math.PI / 4;
     g.add(roof);
-
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.08), doorMat);
-    door.position.set(0, 0.45, 0.94);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.9, 0.08), doorMat);
+    door.position.set(-1.6, 0.45, -0.68);
     g.add(door);
 
-    const poleGeo = new THREE.CylinderGeometry(0.06, 0.06, 1.6, 6);
-    const p1 = new THREE.Mesh(poleGeo, poleMat); p1.position.set(1.7, 0.8, 0.9);
-    const p2 = new THREE.Mesh(poleGeo, poleMat); p2.position.set(1.7, 0.8, -0.9);
-    g.add(p1, p2);
-    const net = new THREE.Mesh(new THREE.PlaneGeometry(1.8, 1.1), netMat);
-    net.position.set(1.7, 0.9, 0);
-    net.rotation.y = Math.PI / 2;
-    g.add(net);
-
+    // 畑: 3本の畝(耕した土の細長い箱)+ 各畝に小麦の穂を数株
+    for (let r = 0; r < 3; r++) {
+      const rz = -0.2 + r * 1.0;
+      const ridge = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.16, 0.6), soilMat);
+      ridge.position.set(0.4, 0.08, rz);
+      g.add(ridge);
+      for (let c = 0; c < 5; c++) {
+        const stalk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.05, 0.5, 6), wheatStalk);
+        stalk.position.set(-1.1 + c * 0.75, 0.38, rz);
+        stalk.rotation.z = (r + c) % 2 ? 0.12 : -0.1; // 少し傾けて手作り感
+        g.add(stalk);
+      }
+    }
     return g;
   }
 
