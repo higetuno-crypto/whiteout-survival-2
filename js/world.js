@@ -112,6 +112,9 @@ function buildLakeContent(world, area, animated) {
 // 解放演出の丸太フライト用ジオメトリ/マテリアル(T8納品と同形。モジュールで1回だけ生成)
 const PAD_LOG_GEO = new THREE.CylinderGeometry(0.16, 0.16, 1.8, 9).rotateZ(Math.PI / 2);
 const PAD_LOG_MATS = [lambert(0xb0703c), lambert(0xf3dfae), lambert(0xf3dfae)];
+const PAD_BILL_GEO = new THREE.BoxGeometry(0.7, 0.12, 0.42);
+const PAD_BILL_MAT = lambert(0x4caf50);
+const PAD_PILE_VISUAL_CAP = 12; // パッド上に積む見た目の上限(超過分は内部カウントのみ)
 
 // easeOutBack(0→1)。proto-a 583-587行と同じ係数。
 function easeOutBack(p) {
@@ -283,16 +286,66 @@ export class World {
     group.position.set(x, 0, z);
     group.add(dashedRect(3, 3));
     const lock = makeSprite('🔒', { cw: 128, ch: 128, font: 'bold 96px system-ui, sans-serif', sx: 1.4, sy: 1.4 });
-    lock.position.set(0, 1.2, 0);
-    const cost = makeSprite(costLabel(area.cost), { cw: 512, ch: 128, font: 'bold 60px system-ui, sans-serif', sx: 3.2, sy: 0.8 });
-    cost.position.set(0, 0.5, 0);
-    group.add(lock, cost);
+    lock.position.set(0, 1.6, 0);
+    group.add(lock);
+    // 残額ラベル(納品で減っていくため、書き換え可能な保持キャンバス方式)
+    const canvas = document.createElement('canvas');
+    canvas.width = 512; canvas.height = 128;
+    const tex = new THREE.CanvasTexture(canvas);
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    label.scale.set(3.2, 0.8, 1);
+    label.renderOrder = 6;
+    label.position.set(0, 0.9, 0);
+    group.add(label);
     this.scene.add(group);
-    return { x, z, group, cooldown: 0, standTimer: 0 };
+    const pad = { x, z, group, label: { canvas, tex, text: '' }, paidLogs: [], paidBills: [] };
+    this.padSetLabel(pad, costLabel(area.cost));
+    return pad;
+  }
+
+  // パッドの残額ラベルを描き替える(値が変わったときだけ)。
+  padSetLabel(pad, text) {
+    if (pad.label.text === text) return;
+    pad.label.text = text;
+    const ctx = pad.label.canvas.getContext('2d');
+    ctx.clearRect(0, 0, 512, 128);
+    ctx.font = 'bold 60px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineWidth = 8;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.fillStyle = '#fff';
+    ctx.strokeText(text, 256, 64);
+    ctx.fillText(text, 256, 64);
+    pad.label.tex.needsUpdate = true;
+  }
+
+  // 納品された支払いをパッドへ飛ばして積む(丸太=左に井桁、札束=右に重ね)。見た目のみ。
+  padAddPaid(pad, kind, fromWorld) {
+    const pile = kind === 'log' ? pad.paidLogs : pad.paidBills;
+    const i = pile.length;
+    if (i >= PAD_PILE_VISUAL_CAP) { pile.push(null); return; } // 見た目上限超過は数だけ
+    const mesh = kind === 'log'
+      ? new THREE.Mesh(PAD_LOG_GEO, PAD_LOG_MATS)
+      : new THREE.Mesh(PAD_BILL_GEO, PAD_BILL_MAT);
+    mesh.position.copy(fromWorld);
+    this.scene.add(mesh);
+    pile.push(mesh); // 予約(着地前にスロットを確定させ、連続納品でも重ならない)
+    const to = new THREE.Vector3();
+    if (kind === 'log') {
+      to.set(pad.x - 0.8, 0.16 + Math.floor(i / 2) * 0.32, pad.z + (i % 2 === 0 ? -0.3 : 0.3));
+    } else {
+      to.set(pad.x + 0.8, 0.07 + i * 0.14, pad.z);
+    }
+    this.logFlights.push({ mesh, from: fromWorld.clone(), to, t: 0, keep: true, rotate: kind === 'log' && (Math.floor(i / 2) % 2 === 1) });
   }
 
   _retirePad(pad) {
     this.padRetires.push({ group: pad.group, t: 0 });
+    // 積まれた支払い(丸太/札束)もシュリンクさせて回収(解放演出に食われるイメージ)
+    for (const m of [...(pad.paidLogs ?? []), ...(pad.paidBills ?? [])]) {
+      if (m) this.padRetires.push({ group: m, t: 0 });
+    }
   }
 
   // 解放時に「見えている丸太」をパッドへ放物線で飛ばす演出(数は演出用。内部数は eco.pay が真実)。
@@ -389,7 +442,8 @@ export class World {
       a.group.scale.setScalar(Math.max(0.001, 1 - e));
       if (p >= 1) { if (a.group.parent) a.group.parent.remove(a.group); this.padRetires.splice(i, 1); }
     }
-    // 解放演出の丸太フライト(proto-a 535-554行: 0.38s・smoothstep・放物線)
+    // パッドへの支払いフライト(proto-a 535-554行: 0.38s・smoothstep・放物線)。
+    // keep=true のものは着地後もパッド上に積まれたまま残る(納品スタックの見た目)。
     for (let i = this.logFlights.length - 1; i >= 0; i--) {
       const f = this.logFlights[i];
       f.t += dt / 0.38;
@@ -397,7 +451,15 @@ export class World {
       const e = p * p * (3 - 2 * p);
       f.mesh.position.lerpVectors(f.from, f.to, e);
       f.mesh.position.y += 2.1 * 4 * e * (1 - e);
-      if (p >= 1) { this.scene.remove(f.mesh); this.logFlights.splice(i, 1); }
+      if (p >= 1) {
+        if (f.keep) {
+          f.mesh.position.copy(f.to);
+          if (f.rotate) f.mesh.rotation.y = Math.PI / 2; // 井桁の交互層
+        } else {
+          this.scene.remove(f.mesh);
+        }
+        this.logFlights.splice(i, 1);
+      }
     }
   }
 }

@@ -1,5 +1,5 @@
 // three非依存。localStorage互換オブジェクトを外から注入する(テスト可能に)。
-import { RESOURCES, UPGRADES, sanitizeUnlocked } from './data.js';
+import { RESOURCES, UPGRADES, AREAS, sanitizeUnlocked } from './data.js';
 
 export const SAVE_KEY = 'snow_survival2_save_slot1';
 export const BACKUP_KEY = 'snow_survival2_save_backup';
@@ -17,6 +17,7 @@ export function defaultSave() {
     moneyTower: 0,       // 売店脇に積まれた未回収の金額
     fishHutStock: 0,      // 釣り小屋の内部ストック(0..10。T15)
     ranchFed: 0,           // 牧場の総給餌数(T15。3匹ごとにgoods1個の算出基準)
+    padPaid: {},           // {areaId: {money, log}} 解錠パッドへの部分支払い(T16)
   };
 }
 
@@ -37,6 +38,16 @@ function migrate(raw) {
   for (const k of Object.keys(out.resources)) out.resources[k] = num(out.resources[k], 0);
   for (const k of Object.keys(out.upgrades)) out.upgrades[k] = num(out.upgrades[k], 0);
   if (!out.buildProgress || typeof out.buildProgress !== 'object' || Array.isArray(out.buildProgress)) out.buildProgress = {};
+  // padPaid: 実在エリアのエントリだけ残し、money/log を数値に矯正(未知エリア/型破損は捨てる)
+  const validAreas = new Set(AREAS.map(a => a.id));
+  const pp = {};
+  if (out.padPaid && typeof out.padPaid === 'object' && !Array.isArray(out.padPaid)) {
+    for (const [id, v] of Object.entries(out.padPaid)) {
+      if (!validAreas.has(id) || !v || typeof v !== 'object') continue;
+      pp[id] = { money: num(v.money, 0), log: num(v.log, 0) };
+    }
+  }
+  out.padPaid = pp;
   return out;
 }
 

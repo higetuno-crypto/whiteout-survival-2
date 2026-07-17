@@ -9,7 +9,7 @@ import { ProximityAction } from './proximity.js';
 import { UI } from './ui.js';
 import { NpcManager } from './npc.js';
 import { load, persist, CURRENT_VERSION } from './save.js';
-import { AREAS, canUnlockArea, RESOURCES, NPC_HIRE_COSTS } from './data.js';
+import { AREAS, NPC_HIRE_COSTS } from './data.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -117,6 +117,7 @@ function collectSave() {
     buildProgress: buildMgr.serialize(),
     npcs: npcMgr.serialize(),
     moneyTower: shopSystem.serialize(),
+    padPaid,                              // 解錠パッドへの部分支払い(FB反映: 途中まで払った分を保持)
     fishHutStock: buildMgr.sites.get('fishhut')?.stock ?? 0,
     ranchFed: buildMgr.sites.get('ranchpen')?.fed ?? 0,
   };
@@ -134,35 +135,78 @@ const saveNow = () => {
 setInterval(saveNow, 10000);                 // 10秒ごとの自動保存
 document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); }); // 離脱時に保存
 
-// ==== エリア解錠フロー ====
-// 不足コストを「💰n 🪵n」形式に整形(canUnlockArea の missing から)
-function formatMissing(missing) {
-  return Object.entries(missing)
-    .map(([k, v]) => (k === 'money' ? `💰${v}` : `${RESOURCES[k]?.emoji ?? ''}${v}`))
-    .join(' ');
+// ==== エリア解錠フロー(オーナーFB反映: 建設と同じ「納品スタック」方式) ====
+// パッドに近づくと、丸太は1本ずつ・お金は札束(10金)ずつ自動で支払われ、パッド上に積まれる。
+// 途中まで払った分は padPaid としてセーブされ、リロード後も残る。全額に達した瞬間に解放。
+const padPaid = save.padPaid;   // { areaId: { money: n, log: n } } (migrateで補完・サニタイズ済み)
+const padLogTick = new ProximityAction({ radius: 2.2, startDelay: 0.15, interval: 0.12, requireStill: false });
+const padMoneyTick = new ProximityAction({ radius: 2.2, startDelay: 0.15, interval: 0.06, requireStill: false });
+const _padFrom = new THREE.Vector3();
+
+// 起動時: 部分支払い済みのパッドはラベルを「残額」に復元(積み荷の見た目はラベルが真実なので省略)
+for (const [id, pad] of world.lockPads) {
+  if (padPaid[id]) {
+    const area = AREAS.find(a => a.id === id);
+    if (area) world.padSetLabel(pad, padLabelText(padRemaining(area, padPaid[id])));
+  }
 }
-// パッドで1秒静止したときに呼ばれる。支払える→解放演出一式、払えない→3秒クールダウン+不足トースト。
-function tryUnlock(id, pad) {
-  const area = AREAS.find(a => a.id === id);
-  const res = canUnlockArea(id, unlockedAreas, eco.wallet());
-  if (!res.ok) {
-    pad.cooldown = 3.0;
-    ui.toast(`あと${formatMissing(res.missing)}`);
-    return;
-  }
-  const logCost = area.cost.log ?? 0;
-  eco.pay(area.cost);                    // 内部数の真実(金・丸太)を即減算
-  if (logCost > 0) {                     // 見えている丸太を最大15本パッドへ放物線で飛ばす(演出)
-    const froms = [];
-    for (let i = 0; i < Math.min(logCost, 15); i++) { const p = carrier.popVisualOf('log'); if (p) froms.push(p); }
-    world.flyLogsToPad(froms, new THREE.Vector3(pad.x, 0.6, pad.z));
-  }
+
+function padRemaining(area, paid) {
+  return {
+    money: Math.max(0, (area.cost.money ?? 0) - paid.money),
+    log: Math.max(0, (area.cost.log ?? 0) - paid.log),
+  };
+}
+function padLabelText(rem) {
+  const parts = [];
+  if (rem.money > 0) parts.push(`💰${rem.money}`);
+  if (rem.log > 0) parts.push(`🪵${rem.log}`);
+  return parts.join(' ') || 'OPEN!';
+}
+// 全額支払われたパッドの解放処理(旧tryUnlockの演出部分)
+function completeUnlock(id, area) {
   world.buildAreaTerrain(area, true);    // 出現演出つきで地形+木
   buildMgr.spawnSitesForArea(id, save.buildProgress);
   unlockedAreas.push(id);
+  delete padPaid[id];                    // 支払い済み記録は不要になる
   world.refreshLockPads(unlockedAreas);  // このパッドは撤去(シュリンク)され、新たな隣接パッドが出る
   saveNow();
   ui.toast(`${area.name}を解放!`);
+}
+// 毎フレーム: 半径内のパッドへ支払いを進める。step()から呼ばれる。
+function updatePadDelivery(dt, moving) {
+  let near = null, nearId = null, nd = 2.2;
+  for (const [id, pad] of world.lockPads) {
+    const d = Math.hypot(player.root.position.x - pad.x, player.root.position.z - pad.z);
+    if (d < nd) { nd = d; near = pad; nearId = id; }
+  }
+  const area = near ? AREAS.find(a => a.id === nearId) : null;
+  const paid = near ? (padPaid[nearId] ??= { money: 0, log: 0 }) : null;
+  const rem = near ? padRemaining(area, paid) : null;
+  // 丸太の納品(1本ずつ)
+  const logTicks = padLogTick.update(!!near && rem.log > 0 && eco.resources.log > 0, !moving, dt);
+  for (let i = 0; i < logTicks && padRemaining(area, paid).log > 0; i++) {
+    if (eco.take('log', 1) !== 1) break;
+    paid.log += 1;
+    const from = carrier.popVisualOf('log') ?? _padFrom.set(player.root.position.x, 1.4, player.root.position.z);
+    world.padAddPaid(near, 'log', from);
+  }
+  // お金の納品(札束=10金ずつ)
+  const moneyTicks = padMoneyTick.update(!!near && rem.money > 0 && eco.money > 0, !moving, dt);
+  for (let i = 0; i < moneyTicks; i++) {
+    const r = padRemaining(area, paid).money;
+    const amt = Math.min(10, r, eco.money);
+    if (amt <= 0) break;
+    eco.money -= amt;
+    paid.money += amt;
+    _padFrom.set(player.root.position.x, 1.2, player.root.position.z);
+    world.padAddPaid(near, 'money', _padFrom);
+  }
+  if (near) {
+    const remNow = padRemaining(area, paid);
+    world.padSetLabel(near, padLabelText(remNow));
+    if (remNow.money <= 0 && remNow.log <= 0) completeUnlock(nearId, area);
+  }
 }
 
 // ==== 雇用フロー(仲間の小屋 完成後、小屋の脇の雇用パッド → ダイアログ → NPCスポーン) ====
@@ -473,18 +517,8 @@ function step(dt) {
 
   world.update(dt);
 
-  // エリア解錠: 未解錠パッドに半径2m内で1秒静止すると解錠判定(requireStill: 移動中は蓄積しない)。
-  // Map をスナップショットしてから回す(tryUnlock→refreshLockPads がパッドを追加/削除するため)。
-  for (const [id, pad] of [...world.lockPads]) {
-    if (pad.cooldown > 0) { pad.cooldown -= dt; pad.standTimer = 0; continue; }
-    const d = Math.hypot(player.root.position.x - pad.x, player.root.position.z - pad.z);
-    if (d <= 2.0 && !moving) {
-      pad.standTimer += dt;
-      if (pad.standTimer >= 1.0) { pad.standTimer = 0; tryUnlock(id, pad); }
-    } else {
-      pad.standTimer = 0;
-    }
-  }
+  // エリア解錠: パッドに近づくと丸太/お金が自動で納品されて積まれる(建設と同じ操作感)。
+  updatePadDelivery(dt, moving);
 
   // 雇用パッド(小屋完成後): 半径2m内で1秒静止 → 雇用ダイアログ。ダイアログ表示中は蓄積しない。
   ensureHirePad();
@@ -555,6 +589,7 @@ if (DEBUG) {
       world.buildAreaTerrain(area, true);
       buildMgr.spawnSitesForArea(id, save.buildProgress);
       unlockedAreas.push(id);
+      delete padPaid[id];
       world.refreshLockPads(unlockedAreas);
       saveNow();
     },

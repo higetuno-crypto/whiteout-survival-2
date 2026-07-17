@@ -86,3 +86,19 @@ test('fishHutStock/ranchFedの型サニタイズ + 往復(T15)', () => {
   persist(s2, a);
   assert.deepEqual(load(s2).save, a);
 });
+
+test('padPaidのサニタイズ: 未知エリア/型破損を捨て、数値を矯正(T16)', () => {
+  const raw = { version: 1, padPaid: { lake: { money: 60, log: 'x' }, mars: { money: 5 }, forest: null } };
+  const s = memStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+  const { save, corrupted } = load(s);
+  assert.equal(corrupted, false);
+  assert.deepEqual(save.padPaid, { lake: { money: 60, log: 0 } });
+});
+
+test('padPaidの往復(T16)', () => {
+  const s = memStorage();
+  const a = defaultSave();
+  a.padPaid = { forest: { money: 100, log: 7 } };
+  persist(s, a);
+  assert.deepEqual(load(s).save, a);
+});
