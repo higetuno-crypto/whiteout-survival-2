@@ -159,6 +159,7 @@ export class World {
     this.lockPads = new Map();    // areaId -> {x, z, group, cooldown, standTimer}
     this.builtAreas = new Set();  // 地形生成済みエリア(二重生成ガード)
     this._paths = new Map();      // 'a-b'(ソート済みペア) -> 道メッシュ(二重生成ガード)
+    this.gateArches = new Map();  // 'area:neighbor' -> ゲートアーチ(柵のドア)
     this.reveals = [];            // {obj, target, t} easeOutBack で 0→target に出現
     this.padRetires = [];         // {group, t} 消えるパッドのシュリンク
     this.logFlights = [];         // {mesh, from, to, t} 解放演出の丸太フライト
@@ -346,6 +347,38 @@ export class World {
     for (const m of [...(pad.paidLogs ?? []), ...(pad.paidBills ?? [])]) {
       if (m) this.padRetires.push({ group: m, t: 0 });
     }
+  }
+
+  // 柵のゲートアーチ(隣接エリアが解錠されたら「ドア」が立つ)。key で二重生成を防ぐ。
+  // alongZ=true なら開口部がz方向に走る(=東西の壁)。
+  ensureGateArch(key, x, z, alongZ, animated) {
+    if (this.gateArches.has(key)) return;
+    const g = new THREE.Group();
+    g.position.set(x, 0, z);
+    const wood = lambert(0x9c6b3f);
+    const postGeo = new THREE.CylinderGeometry(0.22, 0.26, 2.6, 8);
+    for (const s of [-1, 1]) {
+      const p = new THREE.Mesh(postGeo, wood);
+      p.position.set(alongZ ? 0 : s * 1.7, 1.18, alongZ ? s * 1.7 : 0);
+      g.add(p);
+    }
+    const barGeo = new THREE.CylinderGeometry(0.14, 0.14, 3.8, 8).rotateZ(Math.PI / 2);
+    const bar = new THREE.Mesh(barGeo, lambert(0xb0703c));
+    if (alongZ) bar.rotation.y = Math.PI / 2;
+    bar.position.y = 2.45;
+    g.add(bar);
+    // 支柱の上の赤い旗飾り(見下ろしカメラでも「ドア」と読める目印。長い屋根板は
+    // 真上から見ると赤い壁に見えて破綻したのでやめた)
+    const flagGeo = new THREE.ConeGeometry(0.3, 0.55, 6);
+    const flagMat = lambert(0xe25555);
+    for (const s of [-1, 1]) {
+      const f = new THREE.Mesh(flagGeo, flagMat);
+      f.position.set(alongZ ? 0 : s * 1.7, 2.85, alongZ ? s * 1.7 : 0);
+      g.add(f);
+    }
+    this.scene.add(g);
+    this.gateArches.set(key, g);
+    if (animated) this._animateIn(g, 1);
   }
 
   // 解放時に「見えている丸太」をパッドへ放物線で飛ばす演出(数は演出用。内部数は eco.pay が真実)。

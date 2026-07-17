@@ -609,14 +609,19 @@ export class BuildSite {
   }
 
   // エリア外周の丸太柵(proto-a 158-175行を area の角丸矩形で。mergeGeosで2メッシュに結合)
+  // 4辺の中点はゲート開口部として支柱を置かない(オーナーFB: 柵に意味を持たせる+ドア)。
   _fenceMesh() {
     const g = new THREE.Group();
-    const shape = roundedRectShape(this.area.hw, this.area.hd, 2.5);
+    const { hw, hd } = this.area;
+    const gates = [[-hw, 0], [hw, 0], [0, -hd], [0, hd]]; // エリアローカルのゲート中心
+    const GATE_HALF = 1.7;
+    const shape = roundedRectShape(hw, hd, 2.5);
     const N = 82;
     const pts = shape.getSpacedPoints(N); // 末尾は先頭と同一なので N 本ぶんだけ使う
     const sides = [], caps = [];
     for (let i = 0; i < N; i++) {
       const x = pts[i].x, z = -pts[i].y;
+      if (gates.some(([gx, gz]) => Math.hypot(x - gx, z - gz) < GATE_HALF)) continue; // 開口部
       const h = 1.72 + Math.sin(i * 12.9898) * Math.sin(i * 78.233) * 0.18 + 0.14;
       const r = 0.40 + Math.abs(Math.sin(i * 4.7)) * 0.045;
       sides.push(new THREE.CylinderGeometry(r, r, h, 9, 1, true).translate(x, h / 2 - 0.12, z));
