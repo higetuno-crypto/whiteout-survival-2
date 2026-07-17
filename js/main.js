@@ -10,6 +10,7 @@ import { UI } from './ui.js';
 import { NpcManager } from './npc.js';
 import { load, persist, CURRENT_VERSION, SAVE_KEY } from './save.js';
 import { AREAS, areAreasAdjacent, NPC_HIRE_COSTS } from './data.js';
+import { clampFenceWalls } from './nav.js';
 
 window.__booted = true;
 // CDN不達タイマーを解除(8秒経過後に読み込み成功した場合の#fatal出っぱなしを防ぐ)
@@ -543,23 +544,8 @@ const CAMP_AREA = AREAS.find(a => a.id === 'camp');
 
 // ==== 柵の当たり判定+ゲート(オーナーFB: 柵に意味を持たせる) ====
 // 柵(fence_camp)完成後、campの外周は壁になる。通れるのは4辺中点のゲート開口部だけ。
+// 物理は nav.js(clampFenceWalls)に共有化(NPCも同じ壁に当たる。FB2 G4)。
 // アーチ(ドアの見た目)は「その方向の隣接エリアが解錠済み」のときに立つ。
-const FENCE_TH = 0.5, GATE_OPEN = 1.7;
-function clampFenceWalls(pos) {
-  const { cx, cz, hw, hd } = CAMP_AREA;
-  for (const sx of [-1, 1]) {                      // 東西の壁(x=±hw)
-    const wx = cx + sx * hw;
-    if (Math.abs(pos.x - wx) < FENCE_TH && Math.abs(pos.z - cz) < hd + FENCE_TH) {
-      if (Math.abs(pos.z - cz) >= GATE_OPEN) pos.x = wx + (pos.x >= wx ? FENCE_TH : -FENCE_TH);
-    }
-  }
-  for (const sz of [-1, 1]) {                      // 南北の壁(z=±hd)
-    const wz = cz + sz * hd;
-    if (Math.abs(pos.z - wz) < FENCE_TH && Math.abs(pos.x - cx) < hw + FENCE_TH) {
-      if (Math.abs(pos.x - cx) >= GATE_OPEN) pos.z = wz + (pos.z >= wz ? FENCE_TH : -FENCE_TH);
-    }
-  }
-}
 // 解錠済みの隣接エリアへ向かうゲートにアーチを立てる(柵完成後のみ)。冪等。
 function syncGateArches(animated) {
   const fence = buildMgr.sites.get('fence_camp');
@@ -595,7 +581,7 @@ function step(dt) {
   // 3) 木の幹には当たり判定(すり抜けない)。近い木だけ円で押し出す。
   world.pushOutOfTrees(player.root.position, 0.75);
   // 4) 柵(完成後)は壁。ゲート開口部(4辺中点)だけ通れる。
-  if (buildMgr.sites.get('fence_camp')?.completed) clampFenceWalls(player.root.position);
+  if (buildMgr.sites.get('fence_camp')?.completed) clampFenceWalls(player.root.position, CAMP_AREA);
 
   if (!chopping && !fishing) animateWalk(player, walkPhase, moving, dt);
 

@@ -1,17 +1,20 @@
 // 仲間NPC(雇用・役割・自動作業)。T9レビューの「システム=1モジュール1クラス」方針で main.js から分離。
 // 役割は lumber(伐採→納品)と fisher(釣り→売却)の2種。makeCharacter(NPC_COLORS)を流用し、
 // 各NPCは自分のStackCarrier(見た目)と単一資源の内部カウント this.count を持つ。
-// 移動は faceAngle+animateWalk を流用した直進(障害物回避なし)。水面クランプ(pushOutOfRect)のみ適用。
+// 移動は faceAngle+animateWalk を流用した直進+水面クランプ。柵完成後はプレイヤーと同じ壁に
+// 当たり(clampFenceWalls)、campの内外をまたぐ移動はゲート経由(gateWaypoint)で歩く(FB2 G4)。
 import * as THREE from 'three';
 import { makeCharacter, animateWalk, faceAngle, NPC_COLORS, StackCarrier } from './entities.js';
 import { pushOutOfRect, LAKE_WATER } from './world.js';
 import { ProximityAction } from './proximity.js';
 import { AREAS } from './data.js';
+import { clampFenceWalls, gateWaypoint } from './nav.js';
 
 const NPC_SPEED = 3.4;                          // プレイヤー(4.3〜)よりやや遅い固定値
 const FACE_RATE = 10;                           // 向き補間レート(プレイヤーは11)
 const WALK_RATE = 10;                           // 歩行位相の速度(脚振りの見た目)
 const HUT = AREAS.find(a => a.id === 'hut');    // スポーン/idle基準(仲間の小屋エリア)
+const CAMP = AREAS.find(a => a.id === 'camp');  // 柵の建つエリア(壁とゲートの基準)
 
 // 単一資源のkind(StackCarrier.syncTo用)。lumber=log / fisher=rawFish。
 // countsオブジェクトはNPCごとに1個を再利用する(毎フレームの生成を避ける。統合レビュー指摘)。
@@ -50,18 +53,28 @@ export class Npc {
     };
   }
 
-  // (tx,tz)へ直進。到達(dist<=arrive)なら true。歩いたフレームは animateWalk(moving) を回す。
+  // (tx,tz)へ移動。到達(本来の目標にdist<=arrive)なら true。歩いたフレームは animateWalk(moving) を回す。
+  // 柵完成後(this._fenceOn)は、campの内外をまたぐならゲート経由地へ進路を差し替える。
+  // 経由地は通過側に張り出している(nav.js GATE_PASS)ため、境界を越えた次のフレームには
+  // gateWaypoint が null になり自然に本来の目標へ直進する(状態を持たない)。
   _moveToward(tx, tz, dt, arrive) {
     const p = this.root.position;
-    const dx = tx - p.x, dz = tz - p.z;
+    if (Math.hypot(tx - p.x, tz - p.z) <= arrive) return true;
+    let mx = tx, mz = tz;
+    if (this._fenceOn) {
+      const wp = gateWaypoint(p.x, p.z, tx, tz, CAMP);
+      if (wp) { mx = wp.x; mz = wp.z; }
+    }
+    const dx = mx - p.x, dz = mz - p.z;
     const dist = Math.hypot(dx, dz);
-    if (dist <= arrive || dist < 1e-4) return true;
+    if (dist < 1e-4) return false;                 // 経由地ちょうど(次フレームで再評価)
     const inv = 1 / dist;
     p.x += dx * inv * NPC_SPEED * dt;
     p.z += dz * inv * NPC_SPEED * dt;
     faceAngle(this.root, Math.atan2(dx, dz), dt, FACE_RATE);
     this.walkPhase += dt * WALK_RATE;
-    pushOutOfRect(p, LAKE_WATER.cx, LAKE_WATER.cz, LAKE_WATER.hw + 0.3, LAKE_WATER.hd + 0.3); // 水面のみクランプ
+    pushOutOfRect(p, LAKE_WATER.cx, LAKE_WATER.cz, LAKE_WATER.hw + 0.3, LAKE_WATER.hd + 0.3); // 水面クランプ
+    if (this._fenceOn) clampFenceWalls(p, CAMP);   // 柵の壁(ゲート開口部以外)に当たる
     animateWalk(this.ch, this.walkPhase, true, dt);
     this._moving = true;
     return false;
@@ -85,6 +98,7 @@ export class Npc {
 
   update(dt, ctx) {
     this._moving = false;
+    this._fenceOn = !!ctx.buildMgr.sites.get('fence_camp')?.completed;
     if (this.role === 'lumber') this._updateLumber(dt, ctx);
     else this._updateFisher(dt, ctx);
     this._counts[kindOf(this.role)] = this.count;
