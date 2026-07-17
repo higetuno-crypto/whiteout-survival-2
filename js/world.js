@@ -287,7 +287,7 @@ export class World {
     group.position.set(x, 0, z);
     group.add(dashedRect(3, 3));
     const lock = makeSprite('🔒', { cw: 128, ch: 128, font: 'bold 96px system-ui, sans-serif', sx: 1.4, sy: 1.4 });
-    lock.position.set(0, 1.6, 0);
+    lock.position.set(0, 2.1, 0);   // FB2: コストラベルと被らないよう上へ
     group.add(lock);
     // 残額ラベル(納品で減っていくため、書き換え可能な保持キャンバス方式)
     const canvas = document.createElement('canvas');
@@ -296,7 +296,7 @@ export class World {
     const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
     label.scale.set(3.2, 0.8, 1);
     label.renderOrder = 6;
-    label.position.set(0, 0.9, 0);
+    label.position.set(0, 0.35, 0); // FB2: 🔒アイコンと分離(必要数を読みやすく)
     group.add(label);
     this.scene.add(group);
     const pad = { x, z, group, label: { canvas, tex, text: '' }, paidLogs: [], paidBills: [] };

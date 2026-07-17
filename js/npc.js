@@ -38,7 +38,7 @@ export class Npc {
     this._backPos = new THREE.Vector3();        // 釣りフライトの着地目標(毎フレームの生成回避)
 
     // 作業タイマー: lumber=伐採0.5s / fisher=釣り1.4s
-    this.workTimer = new ProximityAction({ radius: 0, startDelay: 0, interval: role === 'lumber' ? 0.5 : 1.4, requireStill: false });
+    this.workTimer = new ProximityAction({ radius: 0, startDelay: 0, interval: role === 'lumber' ? 0.5 : 1.12, requireStill: false }); // 釣りはFB2で20%高速化
     // 売却タイマー(fisher): 売店で0.12s毎
     this.sellTimer = new ProximityAction({ radius: 0, startDelay: 0, interval: 0.12, requireStill: false });
     // 配達アダプタ(lumber): BuildManager.serveDeliverer が使う。納品は0.12s毎(プレイヤーは0.1s)。

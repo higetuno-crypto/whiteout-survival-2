@@ -15,8 +15,9 @@ test('canUnlockArea: 支払い可能なら ok', () => {
 
 test('canUnlockArea: 資金不足なら不足分を返す', () => {
   const r = canUnlockArea('lake', ['camp'], { money: 30, log: 0 });
+  // lakeのコストは💰65(オーナーFBで100→65に調整)
   assert.equal(r.ok, false);
-  assert.equal(r.missing.money, 70);
+  assert.equal(r.missing.money, 35);
 });
 
 test('canUnlockArea: 解錠済み・未知IDは ok=false', () => {

@@ -15,7 +15,7 @@ export const MARKET_MULT = 1.5; // 大市場解錠後の売値倍率
 // cx/cz(中心)・hw/hd(半幅/半奥行)はワールド座標(m)。campを原点に隣接配置
 export const AREAS = [
   { id: 'camp',    name: 'スタートキャンプ', cost: {},                      cx: 0,   cz: 0,   hw: 13, hd: 10 },
-  { id: 'lake',    name: '湖',               cost: { money: 100 },          cx: 0,   cz: -26, hw: 13, hd: 10 },
+  { id: 'lake',    name: '湖',               cost: { money: 65 },           cx: 0,   cz: -26, hw: 13, hd: 10 },
   { id: 'forest',  name: '森',               cost: { money: 250, log: 20 }, cx: -30, cz: 0,   hw: 13, hd: 10 },
   { id: 'hut',     name: '仲間の小屋',       cost: { money: 400 },          cx: 30,  cz: 0,   hw: 13, hd: 10 },
   { id: 'fishery', name: '漁場',             cost: { money: 700, log: 40 }, cx: 30,  cz: -26, hw: 13, hd: 10 },
@@ -46,7 +46,8 @@ export const UPGRADES = {
 export function upgradeCost(key, lv) { return Math.round(UPGRADES[key].baseCost * Math.pow(1.7, lv)); }
 export function upgradeValue(key, lv) { return UPGRADES[key].base + UPGRADES[key].perLv * lv; }
 
-export const NPC_HIRE_COSTS = [100, 250, 500, 900];
+// オーナーFB(2周目): 仲間は「性能そのまま・数で稼ぐ」方向へ。安く始まり最大17人。
+export const NPC_HIRE_COSTS = [50, 75, 100, 150, 200, 300, 400, 500, 650, 800, 1000, 1500, 2000, 2500, 3000, 4000, 5000];
 export const VISUAL_STACK_CAP = 15; // 背中スタックの表示上限(内部カウントは無制限)
 
 export function canUnlockArea(areaId, unlockedIds, wallet) {

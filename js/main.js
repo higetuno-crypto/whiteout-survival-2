@@ -408,7 +408,7 @@ function stopChopVisual() {
 
 // 釣り(釣りスポットに近づくだけで自動で生魚を集める)。伐採より低頻度(1.2s間隔)。
 // オーナーFB反映: 要静止を廃止(微小な入力ゆらぎで進捗リセットされる厳しさを解消)。
-const fishAction = new ProximityAction({ radius: 2.0, startDelay: 0.4, interval: 1.2, requireStill: false });
+const fishAction = new ProximityAction({ radius: 2.0, startDelay: 0.4, interval: 0.96, requireStill: false }); // FB2: 20%高速化
 let fishing = false;
 const _backPos = new THREE.Vector3(); // 釣りフライトの着地目標(毎フレームのVector3生成を回避)
 
