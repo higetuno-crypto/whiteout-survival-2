@@ -1,9 +1,18 @@
 // three非依存のDOM UI。HUDチップ(💰+携行資源)・アップグレードボタン・トースト。
 // 要素は一度だけ生成し、update()は内部throttle(0.25秒)でtextContent/disabledのみ書き換える
 // (毎フレームのDOM再構築禁止)。コンテナ(#hud/#upgrades/#toast)はindex.htmlに定義済み。
-import { RESOURCES, UPGRADES } from './data.js';
+import { RESOURCES, UPGRADES, NPC_ROLE_INFO } from './data.js';
 
 const REFRESH_INTERVAL = 0.25; // HUD更新間隔(秒)。dtベースなので手動stepの検証でも決定的に動く
+
+// 雇用ダイアログの役割ボタンの配色(表示名/絵文字は NPC_ROLE_INFO を共有)。
+const ROLE_BG = {
+  lumber:   'linear-gradient(135deg,#6bbf59,#3a8a2f)',
+  fisher:   'linear-gradient(135deg,#4a9ede,#2a6ebe)',
+  farmer:   'linear-gradient(135deg,#d9a838,#a87a1c)',
+  cook:     'linear-gradient(135deg,#ef7043,#c0392b)',
+  merchant: 'linear-gradient(135deg,#9b6bd0,#6f3fae)',
+};
 
 export class UI {
   constructor(eco, handlers = {}) {
@@ -74,26 +83,27 @@ export class UI {
   // 画面中央の軽いDOM。ゲームはポーズしない(toastと同様)。役割選択で onPick(role) を呼ぶ。
   get hireOpen() { return !!this._hireEl; }
 
-  showHireDialog(cost, onPick) {
+  // roles = 現在雇える役割IDの配列(main.js が設備の完成状況で決める。FB3で2→最大5種に動的化)。
+  showHireDialog(cost, roles, onPick) {
     if (this._hireEl) return; // 二重表示防止
     const backdrop = document.createElement('div');
     backdrop.style.cssText = 'position:fixed;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.35)';
     backdrop.addEventListener('pointerdown', e => e.stopPropagation()); // ダイアログ操作でジョイスティックを動かさない
     const box = document.createElement('div');
-    box.style.cssText = 'background:#fff;border-radius:18px;padding:20px 24px;display:flex;flex-direction:column;gap:12px;min-width:240px;box-shadow:0 8px 30px rgba(0,0,0,.4);text-align:center';
+    box.style.cssText = 'background:#fff;border-radius:18px;padding:20px 24px;display:flex;flex-direction:column;gap:10px;min-width:240px;max-height:82vh;overflow-y:auto;box-shadow:0 8px 30px rgba(0,0,0,.4);text-align:center';
     const title = document.createElement('div');
     title.textContent = `仲間を雇う(💰${cost})`;
     title.style.cssText = 'font-weight:900;font-size:18px;color:#243244';
     box.appendChild(title);
-    const mkBtn = (label, role, bg) => {
+    const mkBtn = (role) => {
+      const info = NPC_ROLE_INFO[role];
       const b = document.createElement('button');
-      b.textContent = label;
-      b.style.cssText = `padding:12px 16px;font-size:16px;font-weight:700;border:none;border-radius:12px;color:#fff;cursor:pointer;background:${bg}`;
+      b.textContent = `${info.emoji} ${info.name}`;
+      b.style.cssText = `padding:12px 16px;font-size:16px;font-weight:700;border:none;border-radius:12px;color:#fff;cursor:pointer;background:${ROLE_BG[role] ?? '#888'}`;
       b.addEventListener('click', () => { this._closeHire(); onPick(role); });
       return b;
     };
-    box.appendChild(mkBtn('🪓 伐採係', 'lumber', 'linear-gradient(135deg,#6bbf59,#3a8a2f)'));
-    box.appendChild(mkBtn('🎣 釣り係', 'fisher', 'linear-gradient(135deg,#4a9ede,#2a6ebe)'));
+    for (const role of roles) box.appendChild(mkBtn(role));
     const cancel = document.createElement('button');
     cancel.textContent = 'やめる';
     cancel.style.cssText = 'padding:8px 16px;font-size:14px;font-weight:700;border:none;border-radius:12px;color:#333;background:#ddd;cursor:pointer';

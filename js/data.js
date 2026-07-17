@@ -15,6 +15,14 @@ export const MARKET_MULT = 1.5; // 大市場解錠後の売値倍率
 
 // NPCロール(採取3種=lumber/fisher/farmer、運転2種=cook/merchant)。save/ui/npcで共有。
 export const NPC_ROLES = ['lumber', 'fisher', 'farmer', 'cook', 'merchant'];
+// ロールの表示名+絵文字(雇用ダイアログのボタン/雇用トースト。ui/main で共有)。
+export const NPC_ROLE_INFO = {
+  lumber:   { name: '伐採係', emoji: '🪓' },
+  fisher:   { name: '釣り係', emoji: '🎣' },
+  farmer:   { name: '農夫',   emoji: '🌾' },
+  cook:     { name: '料理係', emoji: '🍳' },
+  merchant: { name: '販売係', emoji: '🛒' },
+};
 
 // cx/cz(中心)・hw/hd(半幅/半奥行)はワールド座標(m)。campを原点に隣接配置
 // icon: ロックパッド(未解錠の白枠)で「何が建つか」を示す絵文字(FB4)

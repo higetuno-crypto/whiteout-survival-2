@@ -9,7 +9,7 @@ import { ProximityAction } from './proximity.js';
 import { UI } from './ui.js';
 import { NpcManager } from './npc.js';
 import { load, persist, CURRENT_VERSION, SAVE_KEY } from './save.js';
-import { AREAS, areAreasAdjacent, NPC_HIRE_COSTS } from './data.js';
+import { AREAS, areAreasAdjacent, NPC_HIRE_COSTS, NPC_ROLE_INFO } from './data.js';
 import { clampFenceWalls } from './nav.js';
 import { sfx } from './sfx.js';
 import { confetti } from './fx.js';
@@ -266,15 +266,26 @@ function ensureHirePad() {
   if (!hirePad) createHirePad(hut);
   refreshHirePadCost(NPC_HIRE_COSTS[npcMgr.npcs.length]);
 }
+// 現在雇える役割(FB3): 採取のlumber/fisherは常時。運転系は対応設備が完成してから。
+// farmer=農場完成 / cook=焚き火完成 / merchant=売店完成。設備が無いうちは選択肢に出さない。
+function availableHireRoles() {
+  const roles = ['lumber', 'fisher'];
+  if (buildMgr.sites.get('farm')?.completed) roles.push('farmer');
+  if (buildMgr.sites.get('fire_camp')?.completed) roles.push('cook');
+  if (buildMgr.sites.get('shop_camp')?.completed) roles.push('merchant');
+  return roles;
+}
 // ダイアログの役割ボタン。支払い可否をチェックして雇用。
 function onHirePick(role) {
+  if (!availableHireRoles().includes(role)) return;         // 未解放の役割は弾く(競合安全)
   if (npcMgr.npcs.length >= NPC_HIRE_COSTS.length) return;   // 満員(パッド消滅と競合しても安全)
   const cost = NPC_HIRE_COSTS[npcMgr.npcs.length];
   if (eco.money < cost) { ui.toast(`お金が足りない(💰${cost})`); return; }
   eco.money -= cost;
   npcMgr.hire(role);
   saveNow();
-  ui.toast(role === 'lumber' ? '🪓 伐採係を雇った!' : '🎣 釣り係を雇った!');
+  const info = NPC_ROLE_INFO[role];
+  ui.toast(`${info.emoji} ${info.name}を雇った!`);
 }
 
 // ==== 降雪(Points。プレイヤー追従の70m箱で降らせ、下に抜けたら上へ戻す) ====
@@ -690,7 +701,7 @@ function step(dt) {
         if (hirePad.standTimer >= 1.0) {
           hirePad.standTimer = 0;
           hirePad.cooldown = 2.0;   // 閉じた直後の即再表示を防ぐ
-          ui.showHireDialog(NPC_HIRE_COSTS[npcMgr.npcs.length], onHirePick);
+          ui.showHireDialog(NPC_HIRE_COSTS[npcMgr.npcs.length], availableHireRoles(), onHirePick);
         }
       } else {
         hirePad.standTimer = 0;
