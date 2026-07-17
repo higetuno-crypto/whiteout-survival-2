@@ -88,6 +88,7 @@ syncGateArches(false);
 buildMgr.sites.get('fishhut')?.restoreStock(save.fishHutStock);
 buildMgr.sites.get('ranchpen')?.restoreFed(save.ranchFed);
 buildMgr.sites.get('ranchpen')?.restorePending(save.ranchPending);
+buildMgr.sites.get('depot')?.restoreStored(save.depotStored);
 // T15【T10レビュー申し送り】bigmarketがセーブ復元時点で完成済みなら即座にhasMarket=trueにする。
 // 忘れるとリロードのたびに売値が黙って1倍に戻る(hasMarketはEconomyの一時状態でセーブに含まれないため)。
 if (buildMgr.sites.get('bigmarket')?.completed) eco.hasMarket = true;
@@ -124,6 +125,8 @@ function collectSave() {
     fishHutStock: buildMgr.sites.get('fishhut')?.stock ?? 0,
     ranchFed: buildMgr.sites.get('ranchpen')?.fed ?? 0,
     ranchPending: buildMgr.sites.get('ranchpen')?.pendingGoods ?? 0,
+    depotStored: { ...(buildMgr.sites.get('depot')?.stored ?? { log: 0, rawFish: 0, cookedFish: 0 }) },
+    depotAuto: { ...depotAuto },
   };
 }
 // iOSプライベートモード等でlocalStorageのquota例外が飛ぶことがあるので握る。成功可否を返す。
@@ -426,6 +429,100 @@ const _sawBackPos = new THREE.Vector3();
 // T15釣り小屋(fishHut完成後、半径2m内で0.1秒ごとに内部ストックを容量分だけ引き出す。納品と同じ形)。
 const fishCollect = new ProximityAction({ radius: 2.0, startDelay: 0, interval: 0.1, requireStill: false });
 
+// FB2資材置き場: 完成後、半径2.2m内に立つと在庫の丸太を高速(0.08s毎)で受け取れる(容量まで)。
+const depotTake = new ProximityAction({ radius: 2.2, startDelay: 0.2, interval: 0.08, requireStill: false });
+const _depotFrom = new THREE.Vector3();
+
+// FB2自動化: 資材置き場の隣に「⚙️自動加工(生魚→焼き魚)」「💰自動販売(焼き魚→売上)」の支払いパッド。
+// 支払いはエリア解放パッドと同じ「立って払う」方式(部分払いもセーブされる)。有効化後は2秒毎に1個処理。
+const DEPOT_AUTOS = [
+  { key: 'process', cost: 300, icon: '⚙️', name: '自動加工', dx: -3.4, dz: 2.4 },
+  { key: 'sell',    cost: 800, icon: '💰', name: '自動販売', dx: 3.4,  dz: 2.4 },
+];
+const depotAuto = save.depotAuto;            // { process: 支払い済み額, sell: ... }
+const autoPads = new Map();                  // key -> pad(ロックパッドと同形: group/label/paidBills)
+const autoMoneyTick = new ProximityAction({ radius: 1.8, startDelay: 0.15, interval: 0.06, requireStill: false });
+let processAccum = 0, sellAccum = 0;
+
+function makeAutoPad(def, depot) {
+  const group = new THREE.Group();
+  const x = depot.x + def.dx, z = depot.z + def.dz;
+  group.position.set(x, 0, z);
+  group.add(dashedRect(1.8, 1.8));
+  const icon = makeSprite(def.icon, { cw: 128, ch: 128, font: 'bold 88px system-ui, sans-serif', sx: 1.1, sy: 1.1 });
+  icon.position.set(0, 1.7, 0);
+  group.add(icon);
+  const canvas = document.createElement('canvas');
+  canvas.width = 512; canvas.height = 128;
+  const tex = new THREE.CanvasTexture(canvas);
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  label.scale.set(2.6, 0.65, 1);
+  label.renderOrder = 6;
+  label.position.set(0, 0.3, 0);
+  group.add(label);
+  scene.add(group);
+  const pad = { x, z, group, label: { canvas, tex, text: '' }, paidLogs: [], paidBills: [] };
+  world.padSetLabel(pad, `${def.name} 💰${def.cost - depotAuto[def.key]}`);
+  return pad;
+}
+// 毎フレーム: パッドの出し入れと支払い。depot完成後のみ。
+function updateDepotAutoPads(dt) {
+  const depot = buildMgr.sites.get('depot');
+  if (!depot?.completed) return;
+  for (const def of DEPOT_AUTOS) {
+    const bought = depotAuto[def.key] >= def.cost;
+    let pad = autoPads.get(def.key);
+    if (bought) { if (pad) { world._retirePad(pad); autoPads.delete(def.key); } continue; }
+    if (!pad) { pad = makeAutoPad(def, depot); autoPads.set(def.key, pad); }
+  }
+  // 支払い: 最寄りの未購入パッド1つに対して
+  let near = null, nearDef = null, nd = autoMoneyTick.radius;
+  for (const def of DEPOT_AUTOS) {
+    const pad = autoPads.get(def.key);
+    if (!pad) continue;
+    const d = Math.hypot(player.root.position.x - pad.x, player.root.position.z - pad.z);
+    if (d < nd) { nd = d; near = pad; nearDef = def; }
+  }
+  const ticks = autoMoneyTick.update(!!near && eco.money > 0, true, dt);
+  for (let i = 0; i < ticks && near; i++) {
+    const remaining = nearDef.cost - depotAuto[nearDef.key];
+    const amt = Math.min(10, remaining, eco.money);
+    if (amt <= 0) break;
+    eco.money -= amt;
+    depotAuto[nearDef.key] += amt;
+    _padFrom.set(player.root.position.x, 1.2, player.root.position.z);
+    world.padAddPaid(near, 'money', _padFrom);
+    world.padSetLabel(near, `${nearDef.name} 💰${nearDef.cost - depotAuto[nearDef.key]}`);
+    if (depotAuto[nearDef.key] >= nearDef.cost) { ui.toast(`${nearDef.icon} ${nearDef.name}が動き出した!`); saveNow(); }
+  }
+}
+// 毎フレーム: 有効化済みの自動処理(2秒毎に1個)。
+function updateDepotAutomation(dt) {
+  const depot = buildMgr.sites.get('depot');
+  if (!depot?.completed) return;
+  if (depotAuto.process >= 300) {
+    processAccum += dt;
+    while (processAccum >= 2.0) {
+      processAccum -= 2.0;
+      if (depot.takeFrom('rawFish', 1) === 1) {
+        depot.depositTo('cookedFish', 1, depot.pileAnchors.rawFish);
+      }
+    }
+  }
+  if (depotAuto.sell >= 800) {
+    sellAccum += dt;
+    while (sellAccum >= 2.0) {
+      sellAccum -= 2.0;
+      if (depot.takeFrom('cookedFish', 1) === 1) {
+        shopSystem.deposit(eco.sellPrice('cookedFish'));
+        const t = shopSystem.tower; // マネータワーへ飛ばす(未接続なら売店方向へ)
+        depot.spawnItemFlight('cookedFish', depot.pileAnchors.cookedFish,
+          new THREE.Vector3(t ? t.x : depot.x + 6, 0.6, t ? t.z : depot.z + 6), 0.5, 2.2);
+      }
+    }
+  }
+}
+
 // T15牧場(ranchPen完成後、半径2.2m内で魚を持っていると0.6秒ごとに1匹給餌。goodsが5個溜まったら給餌停止)。
 const ranchFeed = new ProximityAction({ radius: 2.2, startDelay: 0.4, interval: 0.6, requireStill: false });
 const RANCH_GOODS_PICK_RADIUS = 1.6; // ペン脇の未回収goodsに「触れる」判定半径
@@ -599,6 +696,21 @@ function step(dt) {
     }
   }
 
+  // FB2資材置き場: 在庫の丸太をプレイヤーへ(仲間が集めた丸太を素早く受け取って建設へ回す)
+  const depotSite = buildMgr.sites.get('depot');
+  if (depotSite?.completed) {
+    const dd = Math.hypot(player.root.position.x - depotSite.x, player.root.position.z - depotSite.z);
+    const canTake = dd <= depotTake.radius && depotSite.stored.log > 0 && eco.totalCarried() < eco.capacity();
+    const takeTicks = depotTake.update(canTake, true, dt);
+    for (let i = 0; i < takeTicks; i++) {
+      if (depotSite.stored.log <= 0) break;
+      if (eco.add('log', 1) <= 0) break;         // 容量いっぱい
+      depotSite.takeFrom('log', 1);
+      _depotFrom.copy(depotSite.pileAnchors.log);
+      depotSite.spawnItemFlight('log', _depotFrom, new THREE.Vector3(player.root.position.x, 1.8, player.root.position.z));
+    }
+  }
+
   // T15牧場(ranchPen完成後、半径2.2m内で魚(rawFish優先、なければcookedFish)を持っていると
   // 0.6秒ごとに1匹給餌。未回収goodsが5個溜まったら給餌自体を止める(スペック通り)。
   // ペン脇のgoodsに触れる(半径1.6m)と eco.add('goods',1) で1個ずつ回収。
@@ -641,6 +753,10 @@ function step(dt) {
 
   // エリア解錠: パッドに近づくと丸太/お金が自動で納品されて積まれる(建設と同じ操作感)。
   updatePadDelivery(dt, moving);
+
+  // FB2: 資材置き場の自動化パッド(支払い)と自動処理(加工/販売)
+  updateDepotAutoPads(dt);
+  updateDepotAutomation(dt);
 
   // 柵完成後、解錠済み隣接エリア向きのゲートにアーチを立てる(冪等・軽量)
   syncGateArches(true);

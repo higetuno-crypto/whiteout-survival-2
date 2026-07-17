@@ -28,6 +28,7 @@ export const AREAS = [
 // lx/lz はエリア中心からのローカル座標
 export const FACILITIES = [
   { id: 'fence_camp',   areaId: 'camp',    kind: 'fence',    costLogs: 20, lx: 0,    lz: 0 },
+  { id: 'depot',        areaId: 'camp',    kind: 'depot',    costLogs: 6,  lx: 0,    lz: -4 },
   { id: 'shop_camp',    areaId: 'camp',    kind: 'shop',     costLogs: 10, lx: 6,    lz: 4 },
   { id: 'fire_camp',    areaId: 'camp',    kind: 'campfire', costLogs: 8,  lx: -6,   lz: 4 },
   { id: 'bridge_lake',  areaId: 'lake',    kind: 'bridge',   costLogs: 15, lx: 0,    lz: 12 },

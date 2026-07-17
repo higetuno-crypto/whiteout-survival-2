@@ -107,6 +107,19 @@ export class BuildSite {
     this.goodsAnims = [];        // {mesh, t} easeOutBackで出現
     this.goodsAnchor = new THREE.Vector3(this.x + 2.2, 0.3, this.z); // ペン脇のgoods置き場
 
+    // FB2: depot(資材置き場)の在庫。仲間の納品先=ここ。stored が真実、piles は見た目。
+    // プレイヤーは近づくと丸太を容量まで受け取れる。自動加工/自動販売(G3)もここを消費する。
+    this.stored = { log: 0, rawFish: 0, cookedFish: 0 };
+    this._pileMeshes = { log: [], rawFish: [], cookedFish: [] };
+    this._pileSprites = {};      // kind -> {sprite, canvas, ctx, tex, last}
+    this._pileDirty = false;
+    // 置き場のレイアウト: 台の上に3列(丸太/生魚/焼き魚)
+    this.pileAnchors = {
+      log:        new THREE.Vector3(this.x - 1.2, 0.42, this.z),
+      rawFish:    new THREE.Vector3(this.x + 0.2, 0.42, this.z + 0.7),
+      cookedFish: new THREE.Vector3(this.x + 1.2, 0.42, this.z - 0.5),
+    };
+
     // 納品タイマーはサイト側ではなく「配達者(deliverer)」側が持つ(BuildManager.serveDeliverer)。
     // プレイヤーとNPCが各自のペースで最寄り未完成サイトに納品できるようにするための分離(T14)。
 
@@ -307,6 +320,83 @@ export class BuildSite {
     if (this.completed) this.setStockVisual(this.stock);
   }
 
+  /* ============== FB2 depot(資材置き場): 仲間の納品先+プレイヤーの丸太受取所 ============== */
+  // 在庫を増やす(fromWorldがあれば飛んでくる演出つき)。stored が真実、見た目は _refreshPiles。
+  depositTo(kind, n = 1, fromWorld = null) {
+    if (!(kind in this.stored)) return;
+    this.stored[kind] += n;
+    if (fromWorld) this.spawnItemFlight(kind, fromWorld, this.pileAnchors[kind]);
+    this._pileDirty = true;
+  }
+
+  // 在庫から取る(実際に取れた数を返す)
+  takeFrom(kind, n = 1) {
+    if (!(kind in this.stored)) return 0;
+    const got = Math.min(this.stored[kind], n);
+    this.stored[kind] -= got;
+    if (got > 0) this._pileDirty = true;
+    return got;
+  }
+
+  restoreStored(obj) {
+    for (const k of Object.keys(this.stored)) this.stored[k] = Math.max(0, Math.trunc(obj?.[k]) || 0);
+    this._pileDirty = true;
+  }
+
+  // 見た目の山を stored に同期(kindごとに表示上限、超過は「絵文字N」スプライト)。
+  _refreshPiles() {
+    this._pileDirty = false;
+    const CAPS = { log: 8, rawFish: 6, cookedFish: 6 };
+    const EMOJI = { log: '🪵', rawFish: '🐟', cookedFish: '🍖' };
+    for (const kind of Object.keys(this.stored)) {
+      const shown = Math.min(this.stored[kind], CAPS[kind]);
+      const list = this._pileMeshes[kind];
+      const a = this.pileAnchors[kind];
+      while (list.length > shown) this.scene.remove(list.pop());
+      while (list.length < shown) {
+        const i = list.length;
+        const m = createKindMesh(kind);
+        if (kind === 'log') {
+          m.position.set(a.x, a.y + Math.floor(i / 2) * 0.34, a.z + (i % 2 === 0 ? -0.3 : 0.3));
+          m.rotation.y = Math.floor(i / 2) % 2 === 1 ? Math.PI / 2 : 0;
+          m.scale.setScalar(0.85);
+        } else {
+          m.position.set(a.x + (i % 3 - 1) * 0.42, a.y + Math.floor(i / 3) * 0.28, a.z);
+        }
+        this.scene.add(m);
+        list.push(m);
+      }
+      // 数のスプライト(在庫があるときだけ。値が変わったときだけ再描画)
+      let ps = this._pileSprites[kind];
+      if (!ps) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 192; canvas.height = 56;
+        const tex = new THREE.CanvasTexture(canvas);
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+        sprite.scale.set(1.35, 0.4, 1);
+        sprite.position.set(a.x, a.y + 1.35, a.z);
+        sprite.renderOrder = 6;
+        this.scene.add(sprite);
+        ps = this._pileSprites[kind] = { sprite, canvas, ctx: canvas.getContext('2d'), tex, last: -1 };
+      }
+      const count = this.stored[kind];
+      ps.sprite.visible = count > 0;
+      if (count !== ps.last && count > 0) {
+        ps.last = count;
+        ps.ctx.clearRect(0, 0, 192, 56);
+        ps.ctx.font = 'bold 34px system-ui, sans-serif';
+        ps.ctx.textAlign = 'center';
+        ps.ctx.textBaseline = 'middle';
+        ps.ctx.lineWidth = 6;
+        ps.ctx.strokeStyle = '#000';
+        ps.ctx.fillStyle = '#fff';
+        ps.ctx.strokeText(`${EMOJI[kind]}${count}`, 96, 28);
+        ps.ctx.fillText(`${EMOJI[kind]}${count}`, 96, 28);
+        ps.tex.needsUpdate = true;
+      }
+    }
+  }
+
   /* ============== T15 ranchPen: 給餌→3匹ごとにgoods1個(最大5未回収) ============== */
   // fromWorld=発射元(背中)。kind='rawFish'|'cookedFish'。給餌数を進め、3の倍数でgoods1個を出現させる。
   feedOne(fromWorld, kind) {
@@ -353,6 +443,8 @@ export class BuildSite {
   }
 
   update(dt) {
+    // depot: 在庫の見た目を同期(変化したフレームだけ)
+    if (this._pileDirty) this._refreshPiles();
     // 放物線フライト(proto-a 535-554行: 0.38秒・smoothstep・放物線高さ2.1*4*e*(1-e)・slerp)
     for (let i = this.flights.length - 1; i >= 0; i--) {
       const f = this.flights[i];
@@ -581,6 +673,7 @@ export class BuildSite {
   _buildMesh() {
     switch (this.f.kind) {
       case 'fence':    return this._fenceMesh();
+      case 'depot':    return this._depotMesh();
       case 'shop':     return this._shopMesh();
       case 'campfire': return this._campfireMesh();
       case 'bridge':   return this._bridgeMesh();
@@ -636,6 +729,29 @@ export class BuildSite {
     }
     g.add(new THREE.Mesh(mergeGeos(sides), lambert(0xc49a6c)));
     g.add(new THREE.Mesh(mergeGeos(caps), lambert(0xf5e6c0)));
+    return g;
+  }
+
+  // 資材置き場(低い木の台+四隅の支柱)。上に丸太/生魚/焼き魚の山が積まれる(FB2)。
+  _depotMesh() {
+    const g = new THREE.Group();
+    const wood = lambert(0xa87b4d);
+    const deck = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.3, 2.8), wood);
+    deck.position.y = 0.25;
+    g.add(deck);
+    const legGeo = new THREE.CylinderGeometry(0.1, 0.12, 0.35, 6);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(legGeo, lambert(0x8a5f38));
+      leg.position.set(sx * 1.9, 0.12, sz * 1.2);
+      g.add(leg);
+    }
+    // 角の低い支柱(置き場らしさ)
+    const postGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.9, 6);
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const p = new THREE.Mesh(postGeo, wood);
+      p.position.set(sx * 1.95, 0.8, sz * 1.25);
+      g.add(p);
+    }
     return g;
   }
 

@@ -18,6 +18,8 @@ export function defaultSave() {
     fishHutStock: 0,      // 釣り小屋の内部ストック(0..10。T15)
     ranchFed: 0,           // 牧場の総給餌数(T15。3匹ごとにgoods1個の算出基準)
     ranchPending: 0,       // 牧場の未回収goods個数(T16。リロードで消えないように)
+    depotStored: { log: 0, rawFish: 0, cookedFish: 0 }, // 資材置き場の在庫(FB2)
+    depotAuto: { process: 0, sell: 0 }, // 自動化への支払い済み額(FB2。コスト到達で有効)
     padPaid: {},           // {areaId: {money, log}} 解錠パッドへの部分支払い(T16)
   };
 }
@@ -37,6 +39,11 @@ function migrate(raw) {
   out.fishHutStock = num(out.fishHutStock, 0);
   out.ranchFed = num(out.ranchFed, 0);
   out.ranchPending = num(out.ranchPending, 0);
+  // depotStored: 3キーの数値オブジェクトに矯正
+  const ds = (out.depotStored && typeof out.depotStored === 'object' && !Array.isArray(out.depotStored)) ? out.depotStored : {};
+  out.depotStored = { log: num(ds.log, 0), rawFish: num(ds.rawFish, 0), cookedFish: num(ds.cookedFish, 0) };
+  const da = (out.depotAuto && typeof out.depotAuto === 'object' && !Array.isArray(out.depotAuto)) ? out.depotAuto : {};
+  out.depotAuto = { process: num(da.process, 0), sell: num(da.sell, 0) };
   for (const k of Object.keys(out.resources)) out.resources[k] = num(out.resources[k], 0);
   for (const k of Object.keys(out.upgrades)) out.upgrades[k] = num(out.upgrades[k], 0);
   if (!out.buildProgress || typeof out.buildProgress !== 'object' || Array.isArray(out.buildProgress)) out.buildProgress = {};

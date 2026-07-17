@@ -96,8 +96,10 @@ export class Npc {
   _updateLumber(dt, ctx) {
     const { world, buildMgr, eco } = ctx;
     const cap = eco.npcCapacity();
-    // 納品先(未完成サイト)がどこにも無ければ焚き火の近くで待機
-    if (!buildMgr.nearestIncompleteSite(this.root.position, Infinity)) this.state = 'idle';
+    // FB2: 納品先は資材置き場(完成済みなら)を最優先。無ければ従来どおり未完成サイトへ直接。
+    const depot = buildMgr.sites.get('depot');
+    const hasDest = depot?.completed || !!buildMgr.nearestIncompleteSite(this.root.position, Infinity);
+    if (!hasDest) this.state = 'idle';
 
     switch (this.state) {
       case 'idle': {
@@ -108,7 +110,7 @@ export class Npc {
         this.recheck -= dt;
         if (this.recheck <= 0) {
           this.recheck = 5;
-          if (buildMgr.nearestIncompleteSite(this.root.position, Infinity)) this.state = this.count >= cap ? 'toDeliver' : 'toWork';
+          if (depot?.completed || buildMgr.nearestIncompleteSite(this.root.position, Infinity)) this.state = this.count >= cap ? 'toDeliver' : 'toWork';
         }
         break;
       }
@@ -132,32 +134,48 @@ export class Npc {
       }
       case 'toDeliver': {
         if (this.count === 0) { this.state = 'toWork'; break; }
-        const site = buildMgr.nearestIncompleteSite(this.root.position, Infinity);
-        if (!site) { this.state = 'idle'; break; }
-        const arrived = this._moveToward(site.x, site.z, dt, 2.2);
-        buildMgr.serveDeliverer(dt, this.deliverer); // 範囲(2.5m)に入った時点で納品が始まる
-        if (arrived) this.state = 'deliver';
+        // 資材置き場があればそこへ、無ければ従来の未完成サイトへ
+        const dest = depot?.completed ? depot : buildMgr.nearestIncompleteSite(this.root.position, Infinity);
+        if (!dest) { this.state = 'idle'; break; }
+        const arrived = this._moveToward(dest.x, dest.z, dt, 2.2);
+        if (!depot?.completed) buildMgr.serveDeliverer(dt, this.deliverer); // 直接納品モードのみ
+        if (arrived) { this.state = 'deliver'; this.sellTimer.reset(); }
         break;
       }
       case 'deliver': {
         this._stand(dt);
-        buildMgr.serveDeliverer(dt, this.deliverer);
-        if (this.count === 0) { this.state = 'toWork'; break; }
-        // 目の前のサイトが完成(範囲内に未完成が無い)→別の未完成サイトへ歩き直す
-        if (!buildMgr.nearestIncompleteSite(this.root.position, this.deliverer.deliver.radius)) this.state = 'toDeliver';
+        if (depot?.completed) {
+          // 資材置き場へ0.12s毎に1本降ろす(sellTimerを流用: interval 0.12)
+          const ticks = this.sellTimer.update(this.count > 0, false, dt);
+          for (let i = 0; i < ticks; i++) {
+            if (this.count <= 0) break;
+            this.count -= 1;
+            const from = this.carrier.popVisualOf('log');
+            this._backPos.set(this.root.position.x, 1.6, this.root.position.z);
+            depot.depositTo('log', 1, from ?? this._backPos);
+          }
+        } else {
+          buildMgr.serveDeliverer(dt, this.deliverer);
+          // 目の前のサイトが完成(範囲内に未完成が無い)→別の未完成サイトへ歩き直す
+          if (this.count > 0 && !buildMgr.nearestIncompleteSite(this.root.position, this.deliverer.deliver.radius)) this.state = 'toDeliver';
+        }
+        if (this.count === 0) this.state = 'toWork';
         break;
       }
     }
   }
 
-  // ===== 釣り係: 釣り場で釣り(count++)→満杯で売店へ→売却(shopSystem.deposit)→count 0で戻る =====
+  // ===== 釣り係: 釣り場で釣り(count++)→満杯で資材置き場(無ければ売店)へ→count 0で戻る =====
   _updateFisher(dt, ctx) {
     const { world, buildMgr, shopSystem, eco } = ctx;
     const cap = eco.npcCapacity();
     const shop = buildMgr.sites.get('shop_camp');
+    const depot = buildMgr.sites.get('depot');
     const bridge = buildMgr.sites.get('bridge_lake');
-    // 前提条件: 湖解錠(fishSpotあり) & 橋完成 & 売店完成。未達なら小屋の近くで待機。
-    const ready = !!world.fishSpot && bridge?.completed && shop?.completed;
+    // FB2: 納品先は資材置き場を最優先(生魚を置く→自動加工/自動販売が回す)。無ければ売店で直接売る。
+    const dest = depot?.completed ? depot : (shop?.completed ? shop : null);
+    // 前提条件: 湖解錠(fishSpotあり) & 橋完成 & 納品先あり。未達なら小屋の近くで待機。
+    const ready = !!world.fishSpot && bridge?.completed && !!dest;
     if (!ready) this.state = 'idle';
 
     switch (this.state) {
@@ -188,7 +206,7 @@ export class Npc {
       }
       case 'toShop': {
         if (this.count === 0) { this.state = 'toWork'; break; }
-        if (this._moveToward(shop.x, shop.z, dt, 1.8)) { this.state = 'sell'; this.sellTimer.reset(); }
+        if (this._moveToward(dest.x, dest.z, dt, 1.8)) { this.state = 'sell'; this.sellTimer.reset(); }
         break;
       }
       case 'sell': {
@@ -197,7 +215,14 @@ export class Npc {
         for (let i = 0; i < ticks; i++) {
           if (this.count <= 0) break;
           this.count -= 1;
-          shopSystem.deposit(eco.sellPrice('rawFish')); // 未回収金(マネータワー)へ積む
+          if (depot?.completed) {
+            // 資材置き場へ生魚を降ろす(加工/販売は置き場の自動装置が担う)
+            const from = this.carrier.popVisualOf('rawFish');
+            this._backPos.set(this.root.position.x, 1.6, this.root.position.z);
+            depot.depositTo('rawFish', 1, from ?? this._backPos);
+          } else {
+            shopSystem.deposit(eco.sellPrice('rawFish')); // 未回収金(マネータワー)へ積む
+          }
         }
         if (this.count === 0) this.state = 'toWork';
         break;
