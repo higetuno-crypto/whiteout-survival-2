@@ -372,9 +372,13 @@ export class World {
     const group = new THREE.Group();
     group.position.set(x, 0, z);
     group.add(dashedRect(3, 3));
-    const lock = makeSprite('🔒', { cw: 128, ch: 128, font: 'bold 96px system-ui, sans-serif', sx: 1.4, sy: 1.4 });
-    lock.position.set(0, 2.1, 0);   // FB2: コストラベルと被らないよう上へ
+    const lock = makeSprite('🔒', { cw: 128, ch: 128, font: 'bold 96px system-ui, sans-serif', sx: 1.2, sy: 1.2 });
+    lock.position.set(0, 2.9, 0);   // 最上段(名前ラベルの上)
     group.add(lock);
+    // FB4: 「何が建つか」= エリアのアイコン+名前を白枠に表示(解錠前でも中身が分かる)
+    const nameSprite = makeSprite(`${area.icon} ${area.name}`, { cw: 448, ch: 96, font: 'bold 46px system-ui, sans-serif', sx: 3.4, sy: 0.72 });
+    nameSprite.position.set(0, 1.7, 0);
+    group.add(nameSprite);
     // 残額ラベル(納品で減っていくため、書き換え可能な保持キャンバス方式)
     const canvas = document.createElement('canvas');
     canvas.width = 512; canvas.height = 128;
