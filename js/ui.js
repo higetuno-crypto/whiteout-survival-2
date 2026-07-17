@@ -48,7 +48,26 @@ export class UI {
     up.appendChild(this.saveButton);
 
     this.toastEl = document.getElementById('toast');
+
+    // ---- 目標ヒント(画面下中央。目標ガイドの矢印とセットで「次にやること」を言葉でも示す) ----
+    this.hintEl = document.createElement('div');
+    this.hintEl.id = 'hint';
+    this.hintEl.style.cssText = 'position:fixed;bottom:14px;left:50%;transform:translateX(-50%);' +
+      'background:rgba(30,45,70,0.72);color:#fff;padding:8px 18px;border-radius:18px;' +
+      'font-weight:bold;font-size:14px;pointer-events:none;transition:opacity 0.3s;opacity:0;' +
+      'white-space:nowrap;z-index:10';
+    document.body.appendChild(this.hintEl);
+    this._hintText = '';
+
     this._refresh(); // 初期表示(💰 0)
+  }
+
+  // 目標ヒントの文言を更新(同文はスキップ。空文字で非表示)
+  setHint(text) {
+    if (text === this._hintText) return;
+    this._hintText = text;
+    if (text) this.hintEl.textContent = text;
+    this.hintEl.style.opacity = text ? '1' : '0';
   }
 
   // ==== 雇用ダイアログ(仲間の小屋の雇用パッドで1秒静止したときに表示) ====

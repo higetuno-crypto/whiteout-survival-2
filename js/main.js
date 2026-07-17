@@ -258,6 +258,54 @@ function onHirePick(role) {
   ui.toast(role === 'lumber' ? '🪓 伐採係を雇った!' : '🎣 釣り係を雇った!');
 }
 
+// ==== 目標ガイド(オーナーFB: 何をすればいいか分からない対策) ====
+// 今の目標を1つ選び、遠ければプレイヤー脇の方向矢印、近ければ目標の頭上でバウンドする矢印で示す。
+// あわせて画面下にヒントテキストを出す(ui.setHint)。
+const arrowMesh = new THREE.Mesh(
+  new THREE.ConeGeometry(0.38, 0.9, 6),
+  new THREE.MeshBasicMaterial({ color: 0xffd54a }),
+);
+arrowMesh.visible = false;
+scene.add(arrowMesh);
+let goalTimer = 0, goal = null; // goal = {x, z, hint}
+function computeGoal() {
+  // 1) 未完成の建設予定地(丸太を持っていれば納品へ、無ければ木へ)
+  const site = buildMgr.nearestIncompleteSite(player.root.position, Infinity);
+  if (site) {
+    if (eco.resources.log > 0) return { x: site.x, z: site.z, hint: '🪵 白い点線わくに はこんで建てよう!' };
+    const tree = world.nearestTree(player.root.position, Infinity);
+    if (tree) return { x: tree.x, z: tree.z, hint: '🌲 木に近づいて 丸太を集めよう!' };
+    return null;
+  }
+  // 2) ロックパッド(新エリア解放)
+  let pad = null, pd = Infinity;
+  for (const p of world.lockPads.values()) {
+    const d = Math.hypot(p.x - player.root.position.x, p.z - player.root.position.z);
+    if (d < pd) { pd = d; pad = p; }
+  }
+  if (pad) return { x: pad.x, z: pad.z, hint: '🔒 白いわくに お金と丸太をはらうと 新しい土地がひらくよ!' };
+  return null;
+}
+function updateGoalArrow(dt, t) {
+  goalTimer -= dt;
+  if (goalTimer <= 0) { goal = computeGoal(); ui.setHint(goal?.hint ?? ''); goalTimer = 0.5; }
+  if (!goal) { arrowMesh.visible = false; return; }
+  const px = player.root.position.x, pz = player.root.position.z;
+  const dx = goal.x - px, dz = goal.z - pz;
+  const dist = Math.hypot(dx, dz);
+  arrowMesh.visible = true;
+  if (dist > 5) {
+    // 進行方向ガイド: プレイヤーの少し先で目標の方を向いて横たわる矢印(先端が目標側)
+    const nx = dx / dist, nz = dz / dist;
+    arrowMesh.position.set(px + nx * 2.3, 1.05 + Math.sin(t * 4) * 0.12, pz + nz * 2.3);
+    arrowMesh.rotation.set(Math.PI / 2, 0, -Math.atan2(nx, nz)); // コーン先端を進行方向へ倒す
+  } else {
+    // 目標の頭上で下向きにバウンド
+    arrowMesh.position.set(goal.x, 2.5 + Math.abs(Math.sin(t * 5)) * 0.45, goal.z);
+    arrowMesh.rotation.set(Math.PI, 0, 0); // 下向き
+  }
+}
+
 // カメラ初期化(proto-a 51行 + 412-415行と同様)
 const CAM_OFF = new THREE.Vector3(0, 20, 12); // 見下ろし約59度
 const lookPos = player.root.position.clone().setY(1.2);
@@ -308,6 +356,7 @@ function pollKeys() {
 
 const clock = new THREE.Clock();
 let walkPhase = 0;
+let elapsed = 0; // 起動からの経過秒(演出の位相用)
 const _camTgt = new THREE.Vector3(), _lookTgt = new THREE.Vector3(); // 毎フレームのVector3生成を回避
 
 // 伐採(木に近づくだけで自動で丸太を集める)。近接自動処理は ProximityAction に共通化。
@@ -559,6 +608,10 @@ function step(dt) {
 
   // 柵完成後、解錠済み隣接エリア向きのゲートにアーチを立てる(冪等・軽量)
   syncGateArches(true);
+
+  // 目標ガイド(矢印+ヒント)
+  elapsed += dt;
+  updateGoalArrow(dt, elapsed);
 
   // 雇用パッド(小屋完成後): 半径2m内で1秒静止 → 雇用ダイアログ。ダイアログ表示中は蓄積しない。
   ensureHirePad();
