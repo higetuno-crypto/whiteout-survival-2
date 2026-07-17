@@ -441,8 +441,10 @@ const _sawBackPos = new THREE.Vector3();
 // T15釣り小屋(fishHut完成後、半径2m内で0.1秒ごとに内部ストックを容量分だけ引き出す。納品と同じ形)。
 const fishCollect = new ProximityAction({ radius: 2.0, startDelay: 0, interval: 0.1, requireStill: false });
 
-// FB2資材置き場: 完成後、半径2.2m内に立つと在庫の丸太を高速(0.08s毎)で受け取れる(容量まで)。
+// FB2倉庫: 完成後、各 bay に近づくとその資源を高速(0.08s毎)で受け取れる(容量まで)。
+// DEPOT_BAY_RADIUS = bayアンカーからこの距離内なら「その置き場に居る」判定(bay間隔≈2.8mより小さく)。
 const depotTake = new ProximityAction({ radius: 2.2, startDelay: 0.2, interval: 0.08, requireStill: false });
+const DEPOT_BAY_RADIUS = 1.5;
 const _depotFrom = new THREE.Vector3();
 
 // FB3: 旧「有料自動加工/自動販売パッド」は廃止。加工(生魚→焼き魚)と販売は専門NPC
@@ -604,18 +606,24 @@ function step(dt) {
     }
   }
 
-  // FB2資材置き場: 在庫の丸太をプレイヤーへ(仲間が集めた丸太を素早く受け取って建設へ回す)
+  // FB2倉庫: プレイヤーが「近づいた bay」の資源を種別に受け取る(原木以外もOK)。
+  // 各 bay(pileAnchors)は空間的に離れているので、最寄りの非空 bay を選べば「その置き場から取る」体感。
   const depotSite = buildMgr.sites.get('depot');
-  if (depotSite?.completed) {
-    const dd = Math.hypot(player.root.position.x - depotSite.x, player.root.position.z - depotSite.z);
-    const canTake = dd <= depotTake.radius && depotSite.stored.log > 0 && eco.totalCarried() < eco.capacity();
-    const takeTicks = depotTake.update(canTake, true, dt);
-    for (let i = 0; i < takeTicks; i++) {
-      if (depotSite.stored.log <= 0) break;
-      if (eco.add('log', 1) <= 0) break;         // 容量いっぱい
-      depotSite.takeFrom('log', 1);
-      _depotFrom.copy(depotSite.pileAnchors.log);
-      depotSite.spawnItemFlight('log', _depotFrom, new THREE.Vector3(player.root.position.x, 1.8, player.root.position.z));
+  if (depotSite?.completed && eco.totalCarried() < eco.capacity()) {
+    let takeKind = null, nearBay = DEPOT_BAY_RADIUS;
+    for (const kind of Object.keys(depotSite.stored)) {
+      if (depotSite.stored[kind] <= 0) continue;
+      const a = depotSite.pileAnchors[kind];
+      const d = Math.hypot(player.root.position.x - a.x, player.root.position.z - a.z);
+      if (d < nearBay) { nearBay = d; takeKind = kind; }
+    }
+    const takeTicks = depotTake.update(!!takeKind, true, dt);
+    for (let i = 0; i < takeTicks && takeKind; i++) {
+      if (depotSite.stored[takeKind] <= 0) break;
+      if (eco.add(takeKind, 1) <= 0) break;        // 容量いっぱい
+      depotSite.takeFrom(takeKind, 1);
+      _depotFrom.copy(depotSite.pileAnchors[takeKind]);
+      depotSite.spawnItemFlight(takeKind, _depotFrom, new THREE.Vector3(player.root.position.x, 1.8, player.root.position.z));
     }
   }
 

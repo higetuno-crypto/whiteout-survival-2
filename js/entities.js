@@ -132,11 +132,16 @@ const PLANK_MAT = lambert(0xd8b56a);
 const GOODS_GEO = new THREE.BoxGeometry(0.4, 0.4, 0.4);
 const GOODS_MAT = lambert(0xe8b04a);
 
+// 小麦の束(下すぼまりの円柱=穂束っぽく)。金色。FB1
+const WHEAT_GEO = new THREE.CylinderGeometry(0.24, 0.09, 0.52, 7);
+const WHEAT_MAT = lambert(0xe4c24e);
+
 // 球体(魚)は扁平にスケールするため、種別ごとの基準スケールを持つ(ドロップスカッシュもこの基準を軸に乗算する)
 const KIND_SCALE = {
   log:        [1, 1, 1],
   rawFish:    [1.4, 0.5, 0.7],
   cookedFish: [1.4, 0.5, 0.7],
+  wheat:      [1, 1, 1],
   plank:      [1, 1, 1],
   goods:      [1, 1, 1],
 };
@@ -148,6 +153,7 @@ export function createKindMesh(kind) {
     case 'log':        mesh = new THREE.Mesh(LOG_GEO, LOG_MATS); break;
     case 'rawFish':     mesh = new THREE.Mesh(FISH_GEO, RAW_FISH_MAT); break;
     case 'cookedFish':  mesh = new THREE.Mesh(FISH_GEO, COOKED_FISH_MAT); break;
+    case 'wheat':       mesh = new THREE.Mesh(WHEAT_GEO, WHEAT_MAT); break;
     case 'plank':       mesh = new THREE.Mesh(PLANK_GEO, PLANK_MAT); break;
     case 'goods':       mesh = new THREE.Mesh(GOODS_GEO, GOODS_MAT); break;
     default:            mesh = new THREE.Mesh(GOODS_GEO, GOODS_MAT);
@@ -164,7 +170,7 @@ export class StackCarrier {
     parentGroup.add(this.group);
 
     this.items = [];      // {mesh, baseY, kind} 表示中のスタック(先頭=一番下)
-    this.pool = { log: [], rawFish: [], cookedFish: [], plank: [], goods: [] };
+    this.pool = { log: [], rawFish: [], cookedFish: [], wheat: [], plank: [], goods: [] };
     this.dropAnims = [];  // {mesh, baseY, t, kind} proto-a 360, 514-532行
     this._syncBuf = new Array(VISUAL_STACK_CAP); // syncToの目標配列(毎フレームの[]生成を避ける再利用バッファ)
 

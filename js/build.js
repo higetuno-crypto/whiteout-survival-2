@@ -109,17 +109,19 @@ export class BuildSite {
     this.goodsAnims = [];        // {mesh, t} easeOutBackで出現
     this.goodsAnchor = new THREE.Vector3(this.x + 2.2, 0.3, this.z); // ペン脇のgoods置き場
 
-    // FB2: depot(資材置き場)の在庫。仲間の納品先=ここ。stored が真実、piles は見た目。
-    // プレイヤーは近づくと丸太を容量まで受け取れる。自動加工/自動販売(G3)もここを消費する。
-    this.stored = { log: 0, rawFish: 0, cookedFish: 0 };
-    this._pileMeshes = { log: [], rawFish: [], cookedFish: [] };
+    // FB2: depot(倉庫)の在庫。stored が真実、piles は見た目。仲間(採取NPC)の納品先=ここ。
+    // 4種を空間的に分けた「置き場(bay)」に積む(原木/生魚/焼き魚/小麦)。プレイヤーは各bayに近づくと
+    // その資源を容量まで受け取れる(FB2: 原木以外も回収可)。運転NPC(cook/merchant)もbay単位で出し入れ。
+    this.stored = { log: 0, rawFish: 0, cookedFish: 0, wheat: 0 };
+    this._pileMeshes = { log: [], rawFish: [], cookedFish: [], wheat: [] };
     this._pileSprites = {};      // kind -> {sprite, canvas, ctx, tex, last}
     this._pileDirty = false;
-    // 置き場のレイアウト: 台の上に3列(丸太/生魚/焼き魚)
+    // 置き場のレイアウト: 2×2 の bay。各 bay は明確に離して「別々の置き場」に見せる(FB2)。
     this.pileAnchors = {
-      log:        new THREE.Vector3(this.x - 1.2, 0.42, this.z),
-      rawFish:    new THREE.Vector3(this.x + 0.2, 0.42, this.z + 0.7),
-      cookedFish: new THREE.Vector3(this.x + 1.2, 0.42, this.z - 0.5),
+      log:        new THREE.Vector3(this.x - 1.4, 0.42, this.z - 1.0),
+      rawFish:    new THREE.Vector3(this.x + 1.4, 0.42, this.z - 1.0),
+      cookedFish: new THREE.Vector3(this.x - 1.4, 0.42, this.z + 1.0),
+      wheat:      new THREE.Vector3(this.x + 1.4, 0.42, this.z + 1.0),
     };
 
     // 納品タイマーはサイト側ではなく「配達者(deliverer)」側が持つ(BuildManager.serveDeliverer)。
@@ -348,8 +350,8 @@ export class BuildSite {
   // 見た目の山を stored に同期(kindごとに表示上限、超過は「絵文字N」スプライト)。
   _refreshPiles() {
     this._pileDirty = false;
-    const CAPS = { log: 8, rawFish: 6, cookedFish: 6 };
-    const EMOJI = { log: '🪵', rawFish: '🐟', cookedFish: '🍖' };
+    const CAPS = { log: 8, rawFish: 6, cookedFish: 6, wheat: 6 };
+    const EMOJI = { log: '🪵', rawFish: '🐟', cookedFish: '🍖', wheat: '🌾' };
     for (const kind of Object.keys(this.stored)) {
       const shown = Math.min(this.stored[kind], CAPS[kind]);
       const list = this._pileMeshes[kind];

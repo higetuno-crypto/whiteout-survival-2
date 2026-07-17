@@ -12,8 +12,9 @@ import { ProximityAction } from './proximity.js';
 import { sfx } from './sfx.js';
 
 // 売却対象の優先順。丸太は建材なので最後(高価な物から売り、丸太は他に売る物が無いときだけ)。
-// 丸太を末尾に入れているのは序盤の資金源のため: 最初の収入(湖解錠の💰100)は丸太売りで稼ぐ設計。
-const SELL_ORDER = ['rawFish', 'cookedFish', 'plank', 'goods', 'log'];
+// 丸太を末尾に入れているのは序盤の資金源のため: 最初の収入(湖解錠の💰65)は丸太売りで稼ぐ設計。
+// wheat(小麦)は加工不要で直接売れる作物(FB1)。cookedFishの次に置く。
+const SELL_ORDER = ['rawFish', 'cookedFish', 'wheat', 'plank', 'goods', 'log'];
 
 /* ================= マネータワー(売店脇の未回収金スタック) =================
  * 内部金額(真実)は ShopSystem.moneyTower が持つ。このクラスは「見た目」だけを管理する:
