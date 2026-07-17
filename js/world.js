@@ -47,17 +47,91 @@ export function makeTree(scale) {
 }
 
 /* ================= エリア別コンテンツ・レジストリ =================
- * エリアID → { trees, build } のマップ。buildAreaTerrain が土(共通)を敷いた上で、
+ * エリアID → { trees, decor, build } のマップ。buildAreaTerrain が土(共通)を敷いた上で、
  *   trees: 植樹定義 [[lx, lz, scale], ...](中心からのローカル座標。省略/空なら植えない)
+ *   decor: 賑やかし [[kind, lx, lz, scale], ...](kind=DECOR_BUILDERSのキー。当たり判定なし)
  *   build(world, area, animated): 追加コンテンツ(水面・魚・釣り場など)を生成する任意関数
  * を呼び出す。新エリアの中身はここに1エントリ足すだけで増やせる(木以外も扱える一般化)。
- * camp/forest は T7 の植樹をそのまま維持。lake は木を植えない(水面に木が生えないように)。 */
+ * camp/forest は T7 の植樹をそのまま維持。lake は木を植えない(水面に木が生えないように)。
+ * decor は「解錠したのに広くて寂しい」対策(FB2 G5)。施設(中心)・道(辺中点)・釣り場を避けた外周寄り。 */
 const AREA_CONTENT = {
-  camp:   { trees: [[-10, -6, 1.0], [10, -6, 0.85]] },
-  forest: { trees: [[-8, -6, 1.0], [8, -6, 0.9], [-9, 6, 0.95], [8, 6, 0.85], [0, -8, 1.05]] },
-  lake:   { trees: [], build: buildLakeContent }, // 湖: 木なし + 水面/泳ぐ魚/釣り場
+  camp:    { trees: [[-10, -6, 1.0], [10, -6, 0.85]], decor: [['snowman', -10, 7, 1]] },
+  forest:  { trees: [[-8, -6, 1.0], [8, -6, 0.9], [-9, 6, 0.95], [8, 6, 0.85], [0, -8, 1.05]],
+             decor: [['rock', 11, 0, 0.9], ['bush', -4, 8, 1]] },
+  lake:    { trees: [], build: buildLakeContent, // 湖: 木なし + 水面/泳ぐ魚/釣り場
+             decor: [['rock', -9, -6, 1.1], ['rock', 10, 6, 0.8], ['bush', -11, 5, 0.9]] },
+  hut:     { trees: [[-9, -6, 0.8]],
+             decor: [['snowman', 7, -7, 0.9], ['bush', -5, 7, 1], ['rock', 10, 5, 0.7]] },
+  fishery: { trees: [[-9, -6, 0.8]],
+             decor: [['rock', 8, -6, 1], ['rock', 6.3, -4.6, 0.6], ['bush', -7, 6, 0.9]] },
+  ranch:   { trees: [[-9, -6, 0.8]],
+             decor: [['bush', 7, -6, 1.1], ['bush', 9, -4.2, 0.8], ['bush', -7, 7, 0.9], ['rock', 10, 6, 0.7]] },
+  market:  { trees: [[-9, -6, 0.8]],
+             decor: [['bush', -8, -6, 1], ['rock', 8, -7, 0.9], ['bush', 9, 5, 0.85]] },
 };
-const DEFAULT_CONTENT = { trees: [[-9, -6, 0.8]] }; // エントリのないエリアは隅に1本
+const DEFAULT_CONTENT = { trees: [[-9, -6, 0.8]], decor: [['bush', 9, 6, 0.9]] }; // 未登録エリアの最低限
+
+/* ================= デコ(空きエリアの賑やかし)。当たり判定なし ================= */
+const SNOW_MAT = lambert(0xffffff);
+const ROCK_MAT = lambert(0x9aa8b2);
+const BUSH_MAT = lambert(0x7fb069);
+const BUSH_DARK = lambert(0x6a9c55);
+const CARROT_MAT = lambert(0xe8834a);
+const COAL_MAT = lambert(0x2b2b2b);
+const BUCKET_MAT = lambert(0xd9534f);
+
+// 雪だるま: 2段の雪玉+炭の目+ニンジン鼻+赤バケツ帽(ちょっと傾ける)
+function makeSnowman() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.IcosahedronGeometry(0.52, 1), SNOW_MAT);
+  body.position.y = 0.5;
+  const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.36, 1), SNOW_MAT);
+  head.position.y = 1.15;
+  const eyeGeo = new THREE.SphereGeometry(0.05, 6, 5);
+  const eyeL = new THREE.Mesh(eyeGeo, COAL_MAT);
+  eyeL.position.set(-0.12, 1.24, 0.3);
+  const eyeR = new THREE.Mesh(eyeGeo, COAL_MAT);
+  eyeR.position.set(0.12, 1.24, 0.3);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.3, 6).rotateX(Math.PI / 2), CARROT_MAT);
+  nose.position.set(0, 1.14, 0.45);
+  const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.26, 8), BUCKET_MAT);
+  bucket.position.y = 1.48;
+  bucket.rotation.z = 0.12;
+  g.add(body, head, eyeL, eyeR, nose, bucket, blobShadow(1.5, 1.5, 0.05));
+  return g;
+}
+
+// 岩: 潰したicosahedron+雪キャップ
+function makeRock() {
+  const g = new THREE.Group();
+  const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.7, 0), ROCK_MAT);
+  rock.scale.set(1.15, 0.62, 0.95);
+  rock.position.y = 0.34;
+  rock.rotation.y = 0.7;
+  const cap = new THREE.Mesh(new THREE.IcosahedronGeometry(0.42, 0), SNOW_MAT);
+  cap.scale.set(1.1, 0.4, 0.9);
+  cap.position.y = 0.72;
+  cap.rotation.y = 0.3;
+  g.add(rock, cap, blobShadow(1.9, 1.6, 0.05));
+  return g;
+}
+
+// 茂み: 大小2つの緑の塊+うっすら雪
+function makeBush() {
+  const g = new THREE.Group();
+  const b1 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.55, 1), BUSH_MAT);
+  b1.position.set(-0.18, 0.4, 0);
+  b1.scale.y = 0.85;
+  const b2 = new THREE.Mesh(new THREE.IcosahedronGeometry(0.4, 1), BUSH_DARK);
+  b2.position.set(0.35, 0.3, 0.12);
+  const cap = new THREE.Mesh(new THREE.IcosahedronGeometry(0.3, 1), SNOW_MAT);
+  cap.scale.set(1, 0.45, 1);
+  cap.position.set(-0.18, 0.78, 0);
+  g.add(b1, b2, cap, blobShadow(1.7, 1.4, 0.05));
+  return g;
+}
+
+const DECOR_BUILDERS = { snowman: makeSnowman, rock: makeRock, bush: makeBush };
 
 const DIRT_MAT = lambert(0xcaa470);      // 明るい暖色の土(参照動画のタン色に寄せる)
 const RIM_MAT = lambert(0xb08a58);       // 土の縁取り(ひとまわり大きい下敷きで「島」感を出す)
@@ -246,6 +320,18 @@ export class World {
     for (const [lx, lz, s] of content.trees ?? []) {
       const rec = this.addTree(area.cx + lx, area.cz + lz, s);
       if (animated) this._animateIn(rec.group, s); // 木は各自の基準スケール s へ出現
+    }
+
+    // デコ(雪だるま・岩・茂み)。当たり判定なしの賑やかし(FB2 G5)
+    for (const [kind, lx, lz, s = 1] of content.decor ?? []) {
+      const mk = DECOR_BUILDERS[kind];
+      if (!mk) continue;
+      const d = mk();
+      d.position.set(area.cx + lx, 0, area.cz + lz);
+      d.rotation.y = (lx * 7.3 + lz * 3.1) % (Math.PI * 2); // 座標由来の擬似ランダム向き(決定的)
+      d.scale.setScalar(s);
+      this.scene.add(d);
+      if (animated) this._animateIn(d, s);
     }
 
     // 追加コンテンツ(水面・魚・釣り場など)があれば生成
