@@ -75,6 +75,12 @@ const world = new World(scene);
 const buildMgr = new BuildManager(scene, world, eco);
 confetti.init(scene); // 祝祭パーティクル(G5)。以後どのモジュールからでもburstできる
 
+// よく使うエリアrect(格子固定なので起動時に確定)。
+// ★下の起動時復元(syncGateArches)より前に定義すること: constのTDZにより、後置すると
+//   「柵完成+隣接エリア解錠済みセーブ」のリロードで ReferenceError になる(T17通し検証で発見)。
+const LAKE_AREA = AREAS.find(a => a.id === 'lake'); // 湖の土地rect(島の進入ゲート用)
+const CAMP_AREA = AREAS.find(a => a.id === 'camp');
+
 // 起動時: 解錠済みエリア(T10で保持していた unlockedAreas。campは常に含む)の地形+木+施設を復元。
 // campの土地面/木・fence_camp/shop_camp/fire_camp もこのループ経由で生成される(演出なし)。
 for (const id of unlockedAreas) {
@@ -543,10 +549,6 @@ const playerDeliverer = {
   popLogVisual: () => carrier.popVisualOf('log'),
 };
 const deliverers = [playerDeliverer]; // buildMgr.updateへ渡す配列(定数=毎フレームの生成を回避)
-
-// 湖エリアの土地rect(島の進入ゲート用)。lake は格子固定なので起動時に確定。
-const LAKE_AREA = AREAS.find(a => a.id === 'lake');
-const CAMP_AREA = AREAS.find(a => a.id === 'camp');
 
 // ==== 柵の当たり判定+ゲート(オーナーFB: 柵に意味を持たせる) ====
 // 柵(fence_camp)完成後、campの外周は壁になる。通れるのは4辺中点のゲート開口部だけ。
