@@ -398,6 +398,8 @@ const CAM_OFF = new THREE.Vector3(0, 20, 12); // 見下ろし約59度
 const lookPos = player.root.position.clone().setY(1.2);
 camera.position.copy(player.root.position).add(CAM_OFF);
 camera.lookAt(lookPos);
+// ズームで霧の距離もスケールする基準(引いた時に拠点が霧で霞まないよう、霧の見え方を一定に保つ)。
+const FOG_NEAR0 = scene.fog.near, FOG_FAR0 = scene.fog.far;
 
 // ==== 入力(仮想ジョイスティック + WASD + 2本指ピンチでカメラズーム) ====
 const input = { x: 0, z: 0 };            // -1..1 の移動方向(ワールドXZ)
@@ -408,7 +410,7 @@ let pinch = null;                         // 2本指ピンチ中: { startDist, s
 
 // カメラズーム倍率(CAM_OFFの距離をこの倍率でスケール。1=既定 / <1=寄る / >1=引く)。
 let camZoom = 1;
-const ZOOM_MIN = 0.35, ZOOM_MAX = 2.0;
+const ZOOM_MIN = 0.35, ZOOM_MAX = 4.0;
 const clampZoom = z => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
 function pinchDist() { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); }
 
@@ -775,6 +777,9 @@ function step(dt) {
   // カメラ追従(proto-a 608-612行と同じlerp)。CAM_OFFをcamZoom倍してズームを反映(lerpで滑らかに寄る/引く)。
   _camTgt.copy(player.root.position).addScaledVector(CAM_OFF, camZoom);
   camera.position.lerp(_camTgt, 1 - Math.exp(-3.5 * dt));
+  // 霧の距離もカメラ距離(camZoom)に合わせてスケール → 引いても拠点が白く霞まない。
+  scene.fog.near = FOG_NEAR0 * camZoom;
+  scene.fog.far = FOG_FAR0 * camZoom;
   _lookTgt.set(player.root.position.x, 1.2, player.root.position.z);
   lookPos.lerp(_lookTgt, 1 - Math.exp(-4 * dt));
   camera.lookAt(lookPos);
