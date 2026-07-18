@@ -71,6 +71,33 @@ function baseRig(shadowW, shadowD) {
   return { root, lift };
 }
 
+// 球ジオメトリの面(ファセット)を方向ベースで塗り分ける(牛のまだら等)。
+// メッシュを重ねて模様を作ると表面がボコボコ出っ張る(オーナーFB)ので、頂点カラーで
+// 表面に直接ペイントする=出っ張りゼロ。patches: [{dir:単位ベクトル, r:角度半径rad}]
+function paintFacets(geo, patches, baseHex, patchHex) {
+  const g = geo.toNonIndexed();
+  const pos = g.attributes.position;
+  const base = new THREE.Color(baseHex), ink = new THREE.Color(patchHex);
+  const colors = new Float32Array(pos.count * 3);
+  const c = new THREE.Vector3(), v = new THREE.Vector3();
+  for (let f = 0; f < pos.count; f += 3) {
+    c.set(0, 0, 0);
+    for (let k = 0; k < 3; k++) { v.fromBufferAttribute(pos, f + k); c.add(v); }
+    c.normalize();
+    let col = base;
+    for (const p of patches) if (c.angleTo(p.dir) < p.r) { col = ink; break; }
+    for (let k = 0; k < 3; k++) {
+      colors[(f + k) * 3] = col.r;
+      colors[(f + k) * 3 + 1] = col.g;
+      colors[(f + k) * 3 + 2] = col.b;
+    }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  return g;
+}
+const FACET_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });
+const _pd = (x, y, z, r) => ({ dir: new THREE.Vector3(x, y, z).normalize(), r });
+
 /* ================= 種ビルダー(2頭身・flatShadingローポリ。頭が大きいほどかわいい) ================= */
 
 // ペンギン(旧build.js _makePenguinの発展形: 目・フリッパー・足つき)
@@ -112,21 +139,24 @@ function makePenguin() {
 function makeCow() {
   const { root, lift } = baseRig(1.7, 1.15);
   const body = new THREE.Group(); body.position.y = 0.5; lift.add(body);
-  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.42, 9, 7), SNOW);
+  // まだら模様は面の塗り分け(paintFacets)=表面に出っ張らない(オーナーFB 2026-07-19反映)
+  const torsoGeo = paintFacets(new THREE.SphereGeometry(0.42, 9, 7), [
+    _pd(0.55, 0.35, 0.75, 0.6),    // 右肩
+    _pd(-0.8, 0.3, -0.45, 0.65),   // 左後ろ腹
+    _pd(0.2, 0.8, -0.55, 0.5),     // 背中の後ろ
+    _pd(-0.55, -0.05, 0.75, 0.42), // 左前の小さいの
+  ], 0xf4f4f2, 0x1c1c22);
+  const torso = new THREE.Mesh(torsoGeo, FACET_MAT);
   torso.scale.set(0.78, 0.6, 1.22); body.add(torso);
-  const patchGeo = new THREE.SphereGeometry(0.2, 7, 6);
-  for (const [x, y, z, s] of [[0.2, 0.14, 0.38, 1.0], [-0.24, 0.1, -0.18, 1.15], [0.08, 0.17, -0.42, 0.85]]) {
-    const p = new THREE.Mesh(patchGeo, INK);
-    p.position.set(x, y, z); p.scale.set(s * 1.15, s * 0.6, s * 1.3);
-    body.add(p);
-  }
   const udder = new THREE.Mesh(new THREE.SphereGeometry(0.13, 7, 6), PINK);
   udder.scale.set(1, 0.72, 1); udder.position.set(0, -0.24, -0.18); body.add(udder);
   const head = new THREE.Group(); head.position.set(0, 0.2, 0.5); body.add(head);
-  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.28, 9, 7), SNOW);
+  // 右目まわりのパッチも塗りで(ホルスタインの片目ぶち)
+  const skullGeo = paintFacets(new THREE.SphereGeometry(0.28, 9, 7), [
+    _pd(0.6, 0.3, 0.68, 0.52),
+  ], 0xf4f4f2, 0x1c1c22);
+  const skull = new THREE.Mesh(skullGeo, FACET_MAT);
   skull.scale.set(0.9, 0.85, 0.9); skull.position.z = 0.06; head.add(skull);
-  const eyePatch = new THREE.Mesh(new THREE.SphereGeometry(0.12, 7, 6), INK);
-  eyePatch.position.set(0.14, 0.1, 0.13); eyePatch.scale.set(1, 0.95, 1); head.add(eyePatch);
   const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), PINK);
   muzzle.scale.set(1.05, 0.72, 0.8); muzzle.position.set(0, -0.09, 0.28); head.add(muzzle);
   const eyes = [];
