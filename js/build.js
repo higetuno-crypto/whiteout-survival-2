@@ -919,6 +919,28 @@ export class BuildSite {
       posts.push(new THREE.CylinderGeometry(0.095, 0.095, 0.95, 7, 1, true).translate(x, 0.475, L.hd));
       caps.push(new THREE.CircleGeometry(0.095, 7).rotateX(-Math.PI / 2).translate(x, 0.95, L.hd));
     }
+    // ゲートの開き戸(門柱から外へ開きっぱなしの2枚板×左右。「出入りできるゲート」に見せる)
+    {
+      const th = 0.75, len = 0.85;
+      for (const sx of [-1, 1]) {
+        const hx = sx * (L.gateHalf + 0.08);
+        const dx = -sx * Math.cos(th), dz = Math.sin(th);
+        const ry = Math.atan2(-dz, dx);
+        for (const y of [0.28, 0.52]) {
+          posts.push(new THREE.BoxGeometry(len, 0.055, 0.05).rotateY(ry)
+            .translate(hx + dx * len / 2, y, L.hd + dz * len / 2));
+        }
+      }
+    }
+    // 地面の賑やかし: 雪だまり+餌箱まわりのわらの散らばり(薄い円盤)
+    {
+      const patch = (r) => new THREE.CircleGeometry(r, 9).rotateX(-Math.PI / 2);
+      snow.push(patch(0.55).translate(-2.7, 0.025, 0.8));
+      snow.push(patch(0.4).translate(1.4, 0.025, -0.5));
+      snow.push(patch(0.45).translate(3.0, 0.025, 1.6));
+      hay.push(patch(0.32).translate(L.trough.x + 0.7, 0.03, L.trough.z - 0.5));
+      hay.push(patch(0.26).translate(L.trough.x - 0.55, 0.03, L.trough.z - 0.75));
+    }
 
     // --- 餌箱(木枠+干し草の山。給餌フライトはここに着地する) ---
     {

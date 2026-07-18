@@ -15,7 +15,7 @@ export const RANCH_LAYOUT = {
   trough:  { x: -1.7,  z: 1.7 },                    // 餌箱(給餌フライトの着地先)
   water:   { x: 1.9,   z: 1.7 },                    // 水飲み場
   rock:    { x: 2.3,   z: -1.6, top: 0.55 },        // ヤギが登る岩
-  bale:    { x: 5.3,   z: -0.7, top: 0.64 },        // 干し草ロール(柵の外。猫のお昼寝ベッド)
+  bale:    { x: 5.45,  z: -0.7, top: 0.64 },        // 干し草ロール(柵の外。猫のお昼寝ベッド。犬の巡回路の外)
   shelter: { x: -2.0,  z: -1.9 },                   // 小屋(奥の左)
   goods:   { x: 5.0,   z: 2.4 },                    // 未回収goodsの置き場(柵の外・手前)
 };
@@ -37,6 +37,14 @@ const SHEEP_F= lambert(0x4a4a52);   // 羊の顔/脚(チャコール)
 const HORSE  = lambert(0xb5793f);   // 馬の栗毛
 const HORSE_D= lambert(0x5d3f28);   // たてがみ/しっぽ
 const BUNNY  = lambert(0xffffff);   // 雪うさぎ
+const DOG    = lambert(0xd98e4a);   // コーギーのオレンジ
+const PIG    = lambert(0xefa09a);   // 豚のピンク
+const PIG_D  = lambert(0xe08680);   // 豚の鼻先/耳
+const DEER   = lambert(0x8a6242);   // トナカイの毛
+const DEER_D = lambert(0x6e4c34);   // トナカイの鼻まわり
+const DEER_C = lambert(0xe8ddcc);   // トナカイの胸元/しっぽ
+const ANTLER = lambert(0xd8c49a);   // 角
+const RED_NOSE = new THREE.MeshBasicMaterial({ color: 0xe23b2e }); // 赤鼻(光って見えるBasic)
 // 目は陰にならないBasic(まっ黒+白ハイライト)。ローポリ動物のかわいさはほぼ目で決まる。
 const EYE    = new THREE.MeshBasicMaterial({ color: 0x23232a });
 const GLINT  = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -377,6 +385,144 @@ function makeRabbit() {
   return { root, lift, body, head, eyes, legs, flippers: null, ears, tail, bodyY: 0.14 };
 }
 
+// 犬(コーギー: 胴長短足+大きな三角耳+ちぎれ尻尾。柵の外周をパトロールする牧羊犬)
+function makeDog() {
+  const { root, lift } = baseRig(0.85, 0.6);
+  const body = new THREE.Group(); body.position.y = 0.21; lift.add(body);
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), DOG);
+  torso.scale.set(0.85, 0.78, 1.6); body.add(torso);
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.11, 7, 6), CAT_W);
+  chest.scale.set(0.9, 0.75, 1.0); chest.position.set(0, -0.03, 0.2); body.add(chest);
+  const head = new THREE.Group(); head.position.set(0, 0.16, 0.36); body.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.14, 8, 6), DOG);
+  skull.scale.set(0.95, 0.9, 0.95); head.add(skull);
+  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.075, 7, 6), CAT_W);
+  muzzle.scale.set(1.1, 0.75, 0.95); muzzle.position.set(0, -0.045, 0.115); head.add(muzzle);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.026, 5, 4), INK);
+  nose.position.set(0, -0.02, 0.175); head.add(nose);
+  const blaze = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.12, 0.03), CAT_W);
+  blaze.position.set(0, 0.06, 0.115); blaze.rotation.x = -0.4; head.add(blaze);
+  const eyes = [];
+  addEyes(head, eyes, 0.037, 0.075, 0.035, 0.115);
+  const ears = [];
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Group(); ear.position.set(sx * 0.085, 0.115, -0.01);
+    const em = new THREE.Mesh(new THREE.ConeGeometry(0.062, 0.15, 4), DOG);
+    em.position.y = 0.06; ear.add(em);
+    const inner = new THREE.Mesh(new THREE.ConeGeometry(0.032, 0.08, 4), PINK);
+    inner.position.set(0, 0.045, 0.02); ear.add(inner);
+    ear.userData.restZ = -sx * 0.1;
+    ear.rotation.z = ear.userData.restZ;
+    head.add(ear); ears.push(ear);
+  }
+  const tail = new THREE.Group(); tail.position.set(0, 0.1, -0.4); body.add(tail);
+  const tm = new THREE.Mesh(new THREE.SphereGeometry(0.06, 6, 5), DOG);
+  tm.scale.set(0.8, 1, 1.2); tm.position.set(0, 0.03, -0.03); tail.add(tm);
+  tail.rotation.x = -0.8;   // ぴんと上向きのちぎれ尻尾
+  const legs = [];
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const leg = new THREE.Group(); leg.position.set(sx * 0.09, 0.1, sz * 0.17);
+    const lm = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, 0.07), DOG); lm.position.y = -0.035;
+    const paw = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.05, 0.078), CAT_W); paw.position.y = -0.085;
+    leg.add(lm, paw); lift.add(leg); legs.push(leg);
+  }
+  return { root, lift, body, head, eyes, legs, flippers: null, ears, tail, bodyY: 0.21 };
+}
+
+// 豚(ピンクのまんまる+平らな鼻先+前垂れ耳+くるん尻尾)
+function makePig() {
+  const { root, lift } = baseRig(1.0, 0.8);
+  const body = new THREE.Group(); body.position.y = 0.27; lift.add(body);
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.24, 9, 7), PIG);
+  torso.scale.set(0.95, 0.85, 1.2); body.add(torso);
+  const head = new THREE.Group(); head.position.set(0, 0.06, 0.3); body.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), PIG);
+  skull.scale.set(0.95, 0.88, 0.9); head.add(skull);
+  const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.075, 0.07, 8).rotateX(Math.PI / 2), PIG_D);
+  snout.position.set(0, -0.03, 0.16); head.add(snout);
+  const eyes = [];
+  addEyes(head, eyes, 0.032, 0.08, 0.045, 0.13);
+  const ears = [];
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Group(); ear.position.set(sx * 0.09, 0.12, 0.02);
+    const em = new THREE.Mesh(new THREE.ConeGeometry(0.055, 0.11, 4), PIG_D);
+    em.position.y = 0.045; ear.add(em);
+    ear.rotation.x = 0.75;             // 目の上に前垂れ
+    ear.userData.restZ = -sx * 0.15;
+    ear.rotation.z = ear.userData.restZ;
+    head.add(ear); ears.push(ear);
+  }
+  // くるんと巻いた尻尾(小球3つの渦)
+  const tail = new THREE.Group(); tail.position.set(0, 0.1, -0.29); body.add(tail);
+  const tGeo = new THREE.SphereGeometry(0.028, 5, 4);
+  for (const [x, y, z, s] of [[0.02, 0.01, -0.02, 1], [0.05, 0.04, -0.01, 0.85], [0.03, 0.07, 0.01, 0.7]]) {
+    const t = new THREE.Mesh(tGeo, PIG_D);
+    t.position.set(x, y, z); t.scale.setScalar(s);
+    tail.add(t);
+  }
+  const legs = [];
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const leg = new THREE.Group(); leg.position.set(sx * 0.13, 0.16, sz * 0.15);
+    const lm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.12, 0.09), PIG); lm.position.y = -0.06;
+    const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.095, 0.05, 0.095), HOOF); hoof.position.y = -0.135;
+    leg.add(lm, hoof); lift.add(leg); legs.push(leg);
+  }
+  return { root, lift, body, head, eyes, legs, flippers: null, ears, tail, bodyY: 0.27 };
+}
+
+// トナカイ(枝角+白い胸元+赤鼻。サンタの相棒なのでペンに入れず柵の左側を自由に歩く)
+function makeReindeer() {
+  const { root, lift } = baseRig(1.6, 1.1);
+  const body = new THREE.Group(); body.position.y = 0.56; lift.add(body);
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.4, 9, 7), DEER);
+  torso.scale.set(0.72, 0.6, 1.22); body.add(torso);
+  const chest = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), DEER_C);
+  chest.scale.set(1.0, 0.8, 0.7); chest.position.set(0, -0.02, 0.42); body.add(chest);
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.115, 0.15, 0.4, 8), DEER);
+  neck.position.set(0, 0.26, 0.4); neck.rotation.x = 0.5; body.add(neck);
+  const head = new THREE.Group(); head.position.set(0, 0.44, 0.52); body.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.2, 9, 7), DEER);
+  skull.scale.set(0.82, 0.82, 1.05); head.add(skull);
+  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), DEER_D);
+  muzzle.scale.set(0.9, 0.75, 0.95); muzzle.position.set(0, -0.06, 0.2); head.add(muzzle);
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.05, 7, 6), RED_NOSE); // ルドルフの赤鼻
+  nose.position.set(0, -0.05, 0.29); head.add(nose);
+  const eyes = [];
+  addEyes(head, eyes, 0.042, 0.115, 0.045, 0.15);
+  const ears = [];
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Group(); ear.position.set(sx * 0.11, 0.12, -0.02);
+    const em = new THREE.Mesh(new THREE.SphereGeometry(0.07, 7, 5), DEER);
+    em.scale.set(1.5, 0.5, 0.7); em.position.x = sx * 0.08; ear.add(em);
+    ear.userData.restZ = -sx * 0.3;
+    ear.rotation.z = ear.userData.restZ;
+    head.add(ear); ears.push(ear);
+  }
+  // 枝角(主幹+前向きの枝2本を左右に。外へ開いて後ろへ流す)
+  for (const sx of [-1, 1]) {
+    const ant = new THREE.Group(); ant.position.set(sx * 0.09, 0.17, -0.05);
+    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.028, 0.34, 5), ANTLER);
+    beam.position.y = 0.15; ant.add(beam);
+    const t1 = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.02, 0.16, 5), ANTLER);
+    t1.position.set(0, 0.12, 0.05); t1.rotation.x = -0.9; ant.add(t1);
+    const t2 = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.018, 0.12, 5), ANTLER);
+    t2.position.set(0, 0.24, 0.04); t2.rotation.x = -0.7; ant.add(t2);
+    ant.rotation.z = -sx * 0.35;
+    ant.rotation.x = -0.35;
+    head.add(ant);
+  }
+  const tail = new THREE.Group(); tail.position.set(0, 0.14, -0.56); body.add(tail);
+  tail.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), DEER_C));
+  const legs = [];
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const leg = new THREE.Group(); leg.position.set(sx * 0.19, 0.38, sz * 0.34);
+    const lm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.34, 0.12), DEER); lm.position.y = -0.17;
+    const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.07, 0.13), HOOF); hoof.position.y = -0.355;
+    leg.add(lm, hoof); lift.add(leg); legs.push(leg);
+  }
+  return { root, lift, body, head, eyes, legs, flippers: null, ears, tail, bodyY: 0.56 };
+}
+
 /* ================= 種ごとの性格(速度・歩幅・とる行動と重み) ================= */
 const SPECIES = {
   penguin: { make: makePenguin, speed: 0.62, turn: 7,   freq: 9.5, amp: 0,
@@ -393,10 +539,24 @@ const SPECIES = {
              acts: [['wander', 3], ['idle', 2], ['graze', 2.8], ['toss', 1.2]] },
   rabbit:  { make: makeRabbit,  speed: 1.1,  turn: 10,  freq: 10,  amp: 0,
              acts: [['wander', 3.4], ['idle', 2], ['perk', 1.8]] },
+  pig:     { make: makePig,     speed: 0.6,  turn: 6,   freq: 7,   amp: 0.55,
+             acts: [['wander', 2.8], ['idle', 2], ['graze', 3], ['hop', 0.7]] },   // graze=鼻掘り
+  dog:     { make: makeDog,     speed: 1.15, turn: 9,   freq: 10,  amp: 0.6,
+             acts: [['patrol', 3.2], ['idle', 1.8], ['sit', 1.5], ['stretch', 1.3]] }, // stretch=プレイバウ
+  reindeer:{ make: makeReindeer,speed: 0.65, turn: 5,   freq: 6.5, amp: 0.55,
+             acts: [['wander', 3], ['idle', 2], ['graze', 2.4], ['toss', 1.2], ['hop', 0.6]] },
 };
 
-// ペンの中で暮らす種(moveTowardの柵内クランプ対象)。cat/rabbitは柵の外の縄張りを持つ
-const PEN_KINDS = new Set(['penguin', 'cow', 'goat', 'sheep', 'horse']);
+// ペンの中で暮らす種(moveTowardの柵内クランプ対象)。cat/rabbit/dog/reindeerは柵の外の縄張りを持つ
+const PEN_KINDS = new Set(['penguin', 'cow', 'goat', 'sheep', 'horse', 'pig']);
+
+// 犬の巡回路(柵の外周を回る4隅。干し草ベールより内側=すり抜けない)
+const PATROL_RING = [
+  { x: RANCH_LAYOUT.hw + 0.85, z: RANCH_LAYOUT.hd + 0.9 },
+  { x: RANCH_LAYOUT.hw + 0.85, z: -(RANCH_LAYOUT.hd + 0.9) },
+  { x: -(RANCH_LAYOUT.hw + 0.85), z: -(RANCH_LAYOUT.hd + 0.9) },
+  { x: -(RANCH_LAYOUT.hw + 0.85), z: RANCH_LAYOUT.hd + 0.9 },
+];
 
 // 「💤」スプライト(猫のお昼寝)。CanvasTextureで1個ずつ生成(牧場に猫は1匹なのでプール不要)
 function makeZzz() {
@@ -463,6 +623,8 @@ function sampleTarget(a) {
       if (Math.hypot(x - L.bale.x, z - L.bale.z) < 1.0) continue;         // ベッドは寝るときだけ
     } else if (a.kind === 'rabbit') {
       x = rand(-5.2, 5.2); z = rand(L.hd + 0.8, L.hd + 2.2);
+    } else if (a.kind === 'reindeer') {
+      x = rand(-(L.hw + 2.2), -(L.hw + 0.8)); z = rand(-3.8, 4.2);        // 柵の左の縦帯
     } else {
       const big = a.kind === 'cow' || a.kind === 'horse';
       const mx = big ? 2.8 : 3.2;
@@ -475,6 +637,7 @@ function sampleTarget(a) {
   }
   if (a.kind === 'cat') return { x: L.hw + 1.3, z: 2.5 };
   if (a.kind === 'rabbit') return { x: 2.0, z: L.hd + 1.5 };
+  if (a.kind === 'reindeer') return { x: -(L.hw + 1.5), z: -1.5 };
   return null;                                                            // null=今回は歩かない(idleへ)
 }
 
@@ -507,7 +670,18 @@ function pickNext(a) {
   else if (act === 'sit')    { a.dur = rand(3, 6); }
   else if (act === 'stretch'){ a.dur = 1.7; }
   else if (act === 'perk')   { a.dur = rand(1.6, 3); a.lookT = 0.2; }   // うさぎ: 立ち上がって見回す
-  else if (act === 'toss')   { a.dur = 1.1; }                            // 馬: 頭をブルッと振る
+  else if (act === 'toss')   { a.dur = 1.1; }                            // 馬/トナカイ: 頭をブルッと振る
+  else if (act === 'patrol') {                                           // 犬: 柵の外周を巡回
+    a.dur = rand(9, 15);
+    if (a.wpDir === undefined || Math.random() < 0.3) a.wpDir = Math.random() < 0.5 ? 1 : -1;
+    let best = 0, bd = 1e9;
+    for (let k = 0; k < 4; k++) {
+      const d = Math.hypot(PATROL_RING[k].x - px, PATROL_RING[k].z - pz);
+      if (d < bd) { bd = d; best = k; }
+    }
+    a.wpIdx = best;
+    a.tgt = PATROL_RING[best];
+  }
 }
 
 // 放物線ホップを開始(その場ホップ or 岩/干し草への乗り降り)。next=着地後に入る状態
@@ -581,9 +755,15 @@ function stateMachine(a, dt) {
       if (!a.tgt || moveToward(a, dt) || a.t >= a.dur) pickNext(a);
       break;
     case 'graze':
-      // 鼻先を地面へ+もぐもぐ(馬は首が高いぶん深く下げる)
-      a.headPitchTgt = (a.kind === 'horse' ? 1.15 : 0.95) + Math.sin(a.t * 9) * 0.06;
-      a.bodyPitchTgt = 0.14;
+      // 鼻先を地面へ+もぐもぐ(馬/トナカイは首が高いぶん深く下げる)
+      a.headPitchTgt = (a.kind === 'horse' ? 1.15 : a.kind === 'reindeer' ? 1.0 : 0.95) + Math.sin(a.t * 9) * 0.06;
+      a.bodyPitchTgt = a.kind === 'pig' ? 0.2 : 0.14;
+      if (a.kind === 'pig') a.headYawTgt = Math.sin(a.t * 6.5) * 0.16;  // 豚は鼻先で左右にふりふり土を掘る
+      if (a.t >= a.dur) { a.headYawTgt = 0; pickNext(a); }
+      break;
+    case 'patrol':  // 犬: 巡回路の角を順に回る(到着したら次の角へ)
+      if (!a.tgt) a.tgt = PATROL_RING[a.wpIdx];
+      if (moveToward(a, dt)) { a.wpIdx = (a.wpIdx + a.wpDir + 4) % 4; a.tgt = PATROL_RING[a.wpIdx]; }
       if (a.t >= a.dur) pickNext(a);
       break;
     case 'perk': {  // うさぎ: 後ろ足で立ち上がり、耳をピンと立てて見回す
@@ -742,6 +922,13 @@ function micro(a, dt) {
   } else if (a.kind === 'sheep' && p.tail) {
     const wag = (a.state === 'hop' || a.hop) ? 9 : 0;           // プロンク中だけ小さく震える
     p.tail.rotation.z = wag ? Math.sin(a.tailT * wag) * 0.3 : 0;
+  } else if (a.kind === 'dog' && p.tail) {
+    const fast = (a.moving || a.state === 'stretch') ? 14 : 7;  // 犬はいつでもフリフリ。遊ぶ時は高速
+    p.tail.rotation.z = Math.sin(a.tailT * fast) * 0.4;
+  } else if (a.kind === 'pig' && p.tail) {
+    p.tail.rotation.y = Math.sin(a.tailT * (a.moving ? 8 : 2)) * 0.25;  // くるん尻尾がぷりぷり
+  } else if (a.kind === 'reindeer' && p.tail) {
+    p.tail.rotation.z = Math.sin(a.tailT * 1.4) * 0.12;
   } else if (a.kind === 'cat' && p.tail) {
     // 2節のS字スイング。眠り中は体に巻き付ける
     const wrap = a.sleepK;
@@ -760,11 +947,13 @@ function micro(a, dt) {
   a.sleepK += (sleepTgt - a.sleepK) * Math.min(1, dt * 3);
   p.body.rotation.x += (a.bodyPitchTgt - 0.52 * a.sitK - p.body.rotation.x) * hr;
   a.bodyYOff = 0.05 * a.sitK - 0.05 * a.sleepK;
-  // 座り=後脚を畳む / 眠り=全身でまるくなる(liftごと潰す)
+  // 座り=後脚を畳む(猫と犬) / 眠り=全身でまるくなる(猫のみ。liftごと潰す)
   const fold = Math.max(a.sitK, a.sleepK);
-  if (a.kind === 'cat') {
+  if (a.kind === 'cat' || a.kind === 'dog') {
     p.legs[2].scale.y = 1 - 0.55 * fold;
     p.legs[3].scale.y = 1 - 0.55 * fold;
+  }
+  if (a.kind === 'cat') {
     if (!a.hop) {
       p.lift.scale.y += (1 - 0.45 * a.sleepK - p.lift.scale.y) * Math.min(1, dt * 5);
       const sxz = 1 + 0.06 * a.sleepK;
@@ -799,8 +988,11 @@ export class RanchAnimals {
       ['goat',     1.1,  0.4, 1.0],
       ['sheep',   -0.3,  1.2, 1.0],
       ['horse',    0.4, -1.7, 1.0],
+      ['pig',      2.2,  0.6, 1.0],
       ['cat',      5.5,  1.6, 1.0],
       ['rabbit',   2.0,  4.3, 1.0],
+      ['dog',      0.5,  3.9, 1.0],
+      ['reindeer', -5.5,  0.5, 1.0],
     ];
     for (const [kind, x, z, mul] of defs) {
       const spec = SPECIES[kind];
