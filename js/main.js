@@ -332,16 +332,39 @@ const arrowMesh = new THREE.Mesh(
 arrowMesh.visible = false;
 scene.add(arrowMesh);
 let goalTimer = 0, goal = null; // goal = {x, z, hint}
+
+// 建設予定地への誘導(丸太を持っていれば納品へ、無ければ最寄りの木へ)。tutorial/通常で共用。
+function guideToBuild(site, buildHint) {
+  if (eco.resources.log > 0) return { x: site.x, z: site.z, hint: buildHint };
+  const tree = world.nearestTree(player.root.position, Infinity);
+  if (tree) return { x: tree.x, z: tree.z, hint: '🌲 木に近づいて 丸太を集めよう!' };
+  return { x: site.x, z: site.z, hint: buildHint };
+}
+
+// チュートリアルの誘導順(オーナーFB): ①売店を建てる → ②湖(釣り場)を解放 → ③仲間の小屋を解放
+// → 以降は通常ロジック(最寄り)。カウンタではなく達成条件で進むので、復元セーブでも現在地に応じた段が出る。
+function tutorialGoal() {
+  const shop = buildMgr.sites.get('shop_camp');
+  if (shop && !shop.completed) return guideToBuild(shop, '🏪 売店を たてよう!(白いわくに丸太をはこぶ)');
+  if (!unlockedAreas.includes('lake')) {
+    const pad = world.lockPads.get('lake');
+    if (pad) return { x: pad.x, z: pad.z, hint: '🎣 お金をはらって 湖(釣り場)をひらこう!' };
+  }
+  if (!unlockedAreas.includes('hut')) {
+    const pad = world.lockPads.get('hut');
+    if (pad) return { x: pad.x, z: pad.z, hint: '🏠 お金をはらって 仲間の小屋をひらこう!' };
+  }
+  return null; // チュートリアル終了 → 通常誘導へ
+}
+
 function computeGoal() {
+  // 0) チュートリアル誘導(売店→湖→仲間の小屋)。終わるとnullで下の通常ロジックへ抜ける。
+  const tut = tutorialGoal();
+  if (tut) return tut;
   // 1) 未完成の建設予定地(丸太を持っていれば納品へ、無ければ木へ)
   const site = buildMgr.nearestIncompleteSite(player.root.position, Infinity);
-  if (site) {
-    if (eco.resources.log > 0) return { x: site.x, z: site.z, hint: '🪵 白い点線わくに はこんで建てよう!' };
-    const tree = world.nearestTree(player.root.position, Infinity);
-    if (tree) return { x: tree.x, z: tree.z, hint: '🌲 木に近づいて 丸太を集めよう!' };
-    return null;
-  }
-  // 2) ロックパッド(新エリア解放)
+  if (site) return guideToBuild(site, '🪵 白い点線わくに はこんで建てよう!');
+  // 2) ロックパッド(新エリア解放)。最寄りを選ぶ。
   let pad = null, pd = Infinity;
   for (const p of world.lockPads.values()) {
     const d = Math.hypot(p.x - player.root.position.x, p.z - player.root.position.z);
