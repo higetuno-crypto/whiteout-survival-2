@@ -890,7 +890,7 @@ export class BuildSite {
 
     // --- 柵: 角丸矩形に支柱を並べ、隣り合う支柱の間へ横木2段を渡す(正面+zの中央はゲート開口) ---
     const shape = roundedRectShape(L.hw, L.hd, L.fenceR);
-    const N = 42;
+    const N = 48;
     const pts = shape.getSpacedPoints(N);
     const kept = [];
     for (let i = 0; i < N; i++) {
@@ -967,7 +967,7 @@ export class BuildSite {
       const { x, z } = L.bale;
       hay.push(new THREE.CylinderGeometry(0.32, 0.32, 0.78, 10).rotateZ(Math.PI / 2).translate(x, 0.32, z));
       hayD.push(new THREE.CylinderGeometry(0.325, 0.325, 0.1, 10).rotateZ(Math.PI / 2).translate(x, 0.32, z));
-      hay.push(new THREE.CylinderGeometry(0.26, 0.26, 0.42, 9).translate(x + 0.85, 0.21, z - 0.9));
+      hay.push(new THREE.CylinderGeometry(0.26, 0.26, 0.42, 9).translate(x + 1.2, 0.21, z - 1.1)); // 猫の縄張り帯の外
     }
 
     g.add(new THREE.Mesh(mergeGeos(posts), lambert(0xc49a6c)));

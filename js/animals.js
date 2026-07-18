@@ -11,13 +11,13 @@ import { faceAngle } from './entities.js';
 
 /* ================= レイアウト(ペンの寸法と小物の位置。build.jsの柵/小物メッシュと共有) ================= */
 export const RANCH_LAYOUT = {
-  hw: 3.5, hd: 2.75, fenceR: 0.9, gateHalf: 1.0,   // 柵: 角丸矩形の半幅/半奥行/角R/正面ゲート半幅
-  trough:  { x: -1.7,  z: 1.55 },                   // 餌箱(給餌フライトの着地先)
-  water:   { x: 1.9,   z: 1.55 },                   // 水飲み場
-  rock:    { x: 2.1,   z: -1.5, top: 0.55 },        // ヤギが登る岩
-  bale:    { x: 4.6,   z: -0.7, top: 0.64 },        // 干し草ロール(柵の外。猫のお昼寝ベッド)
-  shelter: { x: -1.85, z: -1.75 },                  // 小屋(奥の左)
-  goods:   { x: 4.4,   z: 2.0 },                    // 未回収goodsの置き場(柵の外・手前)
+  hw: 4.0, hd: 3.0, fenceR: 0.9, gateHalf: 1.0,     // 柵: 角丸矩形の半幅/半奥行/角R/正面ゲート半幅
+  trough:  { x: -1.7,  z: 1.7 },                    // 餌箱(給餌フライトの着地先)
+  water:   { x: 1.9,   z: 1.7 },                    // 水飲み場
+  rock:    { x: 2.3,   z: -1.6, top: 0.55 },        // ヤギが登る岩
+  bale:    { x: 5.3,   z: -0.7, top: 0.64 },        // 干し草ロール(柵の外。猫のお昼寝ベッド)
+  shelter: { x: -2.0,  z: -1.9 },                   // 小屋(奥の左)
+  goods:   { x: 5.0,   z: 2.4 },                    // 未回収goodsの置き場(柵の外・手前)
 };
 
 /* ================= 配色(モジュールで1回だけ生成して全個体で共有) ================= */
@@ -32,6 +32,11 @@ const GOAT_D = lambert(0xcabfa4);
 const CAT    = lambert(0xe89440);
 const CAT_D  = lambert(0xc9752c);
 const CAT_W  = lambert(0xf7f3ea);
+const WOOL   = lambert(0xf7f4ec);   // 羊の毛(雪よりわずかに暖色)
+const SHEEP_F= lambert(0x4a4a52);   // 羊の顔/脚(チャコール)
+const HORSE  = lambert(0xb5793f);   // 馬の栗毛
+const HORSE_D= lambert(0x5d3f28);   // たてがみ/しっぽ
+const BUNNY  = lambert(0xffffff);   // 雪うさぎ
 // 目は陰にならないBasic(まっ黒+白ハイライト)。ローポリ動物のかわいさはほぼ目で決まる。
 const EYE    = new THREE.MeshBasicMaterial({ color: 0x23232a });
 const GLINT  = new THREE.MeshBasicMaterial({ color: 0xffffff });
@@ -250,6 +255,128 @@ function makeCat() {
   return { root, lift, body, head, eyes, legs, flippers: null, ears, tail, tail2, bodyY: 0.22 };
 }
 
+// 羊(もこもこの毛玉+チャコールの顔。頭の上にも毛のぼんぼり)
+function makeSheep() {
+  const { root, lift } = baseRig(1.25, 0.95);
+  const body = new THREE.Group(); body.position.y = 0.44; lift.add(body);
+  const wool = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 1), WOOL);
+  wool.scale.set(0.95, 0.8, 1.1); body.add(wool);
+  const rump = new THREE.Mesh(new THREE.IcosahedronGeometry(0.24, 1), WOOL);
+  rump.position.set(0, 0.06, -0.28); body.add(rump);
+  const head = new THREE.Group(); head.position.set(0, 0.12, 0.38); body.add(head);
+  const face = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), SHEEP_F);
+  face.scale.set(0.9, 1.0, 0.95); face.position.z = 0.05; head.add(face);
+  const cap = new THREE.Mesh(new THREE.IcosahedronGeometry(0.13, 1), WOOL);
+  cap.scale.set(1.1, 0.7, 1.0); cap.position.set(0, 0.13, 0.0); head.add(cap);
+  const eyes = [];
+  addEyes(head, eyes, 0.04, 0.085, 0.03, 0.16);
+  const ears = [];
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Group(); ear.position.set(sx * 0.13, 0.05, 0.02);
+    const em = new THREE.Mesh(new THREE.SphereGeometry(0.07, 7, 5), SHEEP_F);
+    em.scale.set(1.5, 0.4, 0.65); em.position.x = sx * 0.08; ear.add(em);
+    ear.userData.restZ = -sx * 0.4;
+    ear.rotation.z = ear.userData.restZ;
+    head.add(ear); ears.push(ear);
+  }
+  const tail = new THREE.Group(); tail.position.set(0, 0.12, -0.48); body.add(tail);
+  const tm = new THREE.Mesh(new THREE.IcosahedronGeometry(0.09, 1), WOOL);
+  tm.position.y = -0.02; tail.add(tm);
+  const legs = [];
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const leg = new THREE.Group(); leg.position.set(sx * 0.16, 0.26, sz * 0.26);
+    const lm = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.24, 0.09), SHEEP_F); lm.position.y = -0.12;
+    const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.05, 0.1), HOOF); hoof.position.y = -0.245;
+    leg.add(lm, hoof); lift.add(leg); legs.push(leg);
+  }
+  return { root, lift, body, head, eyes, legs, flippers: null, ears, tail, bodyY: 0.44 };
+}
+
+// 馬(栗毛+たてがみ+顔の白ブレーズ+ふさふさしっぽ。牛より首が高い)
+function makeHorse() {
+  const { root, lift } = baseRig(1.8, 1.2);
+  const body = new THREE.Group(); body.position.y = 0.62; lift.add(body);
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.44, 9, 7), HORSE);
+  torso.scale.set(0.72, 0.6, 1.28); body.add(torso);
+  // 首(斜め前上がりの円柱)とたてがみ(首の上に房のBox列)
+  const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, 0.46, 8), HORSE);
+  neck.position.set(0, 0.32, 0.44); neck.rotation.x = 0.55; body.add(neck);
+  const maneGeo = new THREE.BoxGeometry(0.09, 0.14, 0.1);
+  for (let i = 0; i < 3; i++) {
+    const tuft = new THREE.Mesh(maneGeo, HORSE_D);
+    tuft.position.set(0, 0.42 - i * 0.09, 0.3 + i * 0.075);
+    tuft.rotation.x = 0.55; body.add(tuft);
+  }
+  const head = new THREE.Group(); head.position.set(0, 0.52, 0.58); body.add(head);
+  const skull = new THREE.Mesh(new THREE.SphereGeometry(0.22, 9, 7), HORSE);
+  skull.scale.set(0.8, 0.85, 1.1); skull.position.z = 0.04; head.add(skull);
+  const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), HORSE_D);
+  muzzle.scale.set(0.85, 0.75, 0.9); muzzle.position.set(0, -0.06, 0.24); head.add(muzzle);
+  const blaze = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.2, 0.03), SNOW);
+  blaze.position.set(0, 0.05, 0.2); blaze.rotation.x = -0.35; head.add(blaze);
+  const forelock = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 5), HORSE_D);
+  forelock.scale.set(1.2, 0.7, 1); forelock.position.set(0, 0.2, 0.05); head.add(forelock);
+  const eyes = [];
+  addEyes(head, eyes, 0.042, 0.12, 0.05, 0.17);
+  const ears = [];
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Group(); ear.position.set(sx * 0.1, 0.2, -0.03);
+    const em = new THREE.Mesh(new THREE.ConeGeometry(0.045, 0.12, 5), HORSE);
+    em.position.y = 0.05; ear.add(em);
+    ear.userData.restZ = -sx * 0.15;
+    ear.rotation.z = ear.userData.restZ;
+    head.add(ear); ears.push(ear);
+  }
+  const tail = new THREE.Group(); tail.position.set(0, 0.2, -0.62); body.add(tail);
+  const tm = new THREE.Mesh(new THREE.SphereGeometry(0.11, 7, 6), HORSE_D);
+  tm.scale.set(0.55, 1.6, 0.55); tm.position.y = -0.16; tail.add(tm);
+  const legs = [];
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const leg = new THREE.Group(); leg.position.set(sx * 0.2, 0.42, sz * 0.36);
+    const lm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.38, 0.13), HORSE); lm.position.y = -0.19;
+    const sock = new THREE.Mesh(new THREE.BoxGeometry(0.135, 0.09, 0.135), SNOW); sock.position.y = -0.335;
+    const hoof = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.07, 0.14), HOOF); hoof.position.y = -0.405;
+    leg.add(lm, sock, hoof); lift.add(leg); legs.push(leg);
+  }
+  return { root, lift, body, head, eyes, legs, flippers: null, ears, tail, bodyY: 0.62 };
+}
+
+// 雪うさぎ(小さな白い毛玉+長い耳+綿しっぽ。歩かずぴょんぴょん跳ねる)
+function makeRabbit() {
+  const { root, lift } = baseRig(0.55, 0.45);
+  const body = new THREE.Group(); body.position.y = 0.14; lift.add(body);
+  const torso = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), BUNNY);
+  torso.scale.set(0.85, 0.8, 1.15); body.add(torso);
+  const head = new THREE.Group(); head.position.set(0, 0.1, 0.12); body.add(head);
+  head.add(new THREE.Mesh(new THREE.SphereGeometry(0.105, 8, 6), BUNNY));
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.018, 5, 4), PINK);
+  nose.position.set(0, -0.01, 0.105); head.add(nose);
+  const eyes = [];
+  addEyes(head, eyes, 0.03, 0.055, 0.02, 0.08);
+  // 長い耳(垂直。跳ねると後ろへふわっと倒れる=gaitで制御)
+  const ears = [];
+  for (const sx of [-1, 1]) {
+    const ear = new THREE.Group(); ear.position.set(sx * 0.045, 0.09, -0.01);
+    const em = new THREE.Mesh(new THREE.SphereGeometry(0.075, 6, 5), BUNNY);
+    em.scale.set(0.42, 1.9, 0.55); em.position.y = 0.12; ear.add(em);
+    const inner = new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), PINK);
+    inner.scale.set(0.3, 1.5, 0.35); inner.position.set(0, 0.12, 0.025); ear.add(inner);
+    ear.userData.restZ = -sx * 0.1;
+    ear.rotation.z = ear.userData.restZ;
+    ear.rotation.x = -0.15;
+    head.add(ear); ears.push(ear);
+  }
+  const tail = new THREE.Group(); tail.position.set(0, 0.02, -0.15); body.add(tail);
+  tail.add(new THREE.Mesh(new THREE.SphereGeometry(0.05, 6, 5), BUNNY));
+  const legs = [];
+  for (const [sx, sz] of [[1, 1], [-1, 1], [1, -1], [-1, -1]]) {
+    const leg = new THREE.Group(); leg.position.set(sx * 0.06, 0.08, sz * 0.09);
+    const lm = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.06), BUNNY); lm.position.y = -0.04;
+    leg.add(lm); lift.add(leg); legs.push(leg);
+  }
+  return { root, lift, body, head, eyes, legs, flippers: null, ears, tail, bodyY: 0.14 };
+}
+
 /* ================= 種ごとの性格(速度・歩幅・とる行動と重み) ================= */
 const SPECIES = {
   penguin: { make: makePenguin, speed: 0.62, turn: 7,   freq: 9.5, amp: 0,
@@ -260,7 +387,16 @@ const SPECIES = {
              acts: [['wander', 3], ['idle', 1.6], ['graze', 2.2], ['hop', 1.1], ['rock', 1.5]] },
   cat:     { make: makeCat,     speed: 0.95, turn: 9,   freq: 9,   amp: 0.55,
              acts: [['wander', 3], ['idle', 1.2], ['sit', 1.6], ['nap', 1.6]] },
+  sheep:   { make: makeSheep,   speed: 0.5,  turn: 5,   freq: 6,   amp: 0.5,
+             acts: [['wander', 2.6], ['idle', 2], ['graze', 3], ['hop', 0.9]] },   // hop=プロンク
+  horse:   { make: makeHorse,   speed: 0.7,  turn: 4.5, freq: 6.5, amp: 0.55,
+             acts: [['wander', 3], ['idle', 2], ['graze', 2.8], ['toss', 1.2]] },
+  rabbit:  { make: makeRabbit,  speed: 1.1,  turn: 10,  freq: 10,  amp: 0,
+             acts: [['wander', 3.4], ['idle', 2], ['perk', 1.8]] },
 };
+
+// ペンの中で暮らす種(moveTowardの柵内クランプ対象)。cat/rabbitは柵の外の縄張りを持つ
+const PEN_KINDS = new Set(['penguin', 'cow', 'goat', 'sheep', 'horse']);
 
 // 「💤」スプライト(猫のお昼寝)。CanvasTextureで1個ずつ生成(牧場に猫は1匹なのでプール不要)
 function makeZzz() {
@@ -304,7 +440,7 @@ function segPointDist(x1, z1, x2, z2, px, pz) {
 }
 
 // 小屋の矩形(通れない)。壁の実寸+少し余白
-const SHELTER_RECT = [-2.85, -2.45, -0.85, -1.05]; // [x1, z1, x2, z2]
+const SHELTER_RECT = [-3.0, -2.6, -1.0, -1.2]; // [x1, z1, x2, z2]
 
 // (x1,z1)→(x2,z2)がペン内の障害物(小屋・岩)を突き抜けないか
 function penPathClear(x1, z1, x2, z2) {
@@ -315,7 +451,8 @@ function penPathClear(x1, z1, x2, z2) {
 }
 
 // うろつき先の抽選。ペン内種は小屋/岩を「経路ごと」避ける。
-// 猫は柵の右側の縦帯(ベッドとgoods置き場のある側)だけを縄張りにする — 帯内の移動は柵と決して交差しない
+// 猫=柵の右側の縦帯(ベッド/goodsのある側)、うさぎ=柵の手前の横帯(ゲート前の雪原)だけを縄張りに
+// — 各帯の中の移動は柵と決して交差しない。
 function sampleTarget(a) {
   const L = RANCH_LAYOUT;
   const px = a.p.root.position.x, pz = a.p.root.position.z;
@@ -324,16 +461,21 @@ function sampleTarget(a) {
     if (a.kind === 'cat') {
       x = rand(L.hw + 0.8, L.hw + 2.2); z = rand(-3.8, 4.2);
       if (Math.hypot(x - L.bale.x, z - L.bale.z) < 1.0) continue;         // ベッドは寝るときだけ
+    } else if (a.kind === 'rabbit') {
+      x = rand(-5.2, 5.2); z = rand(L.hd + 0.8, L.hd + 2.2);
     } else {
-      const mx = a.kind === 'cow' ? 2.3 : 2.7;
-      x = rand(-mx, mx); z = rand(-1.9, a.kind === 'cow' ? 0.9 : 1.1);
-      if (x < -0.85 && z < -0.8) continue;                                // 小屋の中
+      const big = a.kind === 'cow' || a.kind === 'horse';
+      const mx = big ? 2.8 : 3.2;
+      x = rand(-mx, mx); z = rand(-2.4, big ? 1.0 : 1.2);
+      if (x < -1.0 && z < -1.1) continue;                                 // 小屋の中
       if (Math.hypot(x - L.rock.x, z - L.rock.z) < 0.95) continue;        // 岩の上
       if (!penPathClear(px, pz, x, z)) continue;                          // 経路が小屋/岩を跨ぐ
     }
     return { x, z };
   }
-  return a.kind === 'cat' ? { x: L.hw + 1.3, z: 2.5 } : null;             // null=今回は歩かない(idleへ)
+  if (a.kind === 'cat') return { x: L.hw + 1.3, z: 2.5 };
+  if (a.kind === 'rabbit') return { x: 2.0, z: L.hd + 1.5 };
+  return null;                                                            // null=今回は歩かない(idleへ)
 }
 
 // 次の行動を重み付き抽選(同じ行動の連続は避ける)
@@ -364,6 +506,8 @@ function pickNext(a) {
   else if (act === 'nap')    { a.dur = 25; a.phase = 'go'; a.tgt = { x: L.bale.x, z: L.bale.z + 0.95 }; }
   else if (act === 'sit')    { a.dur = rand(3, 6); }
   else if (act === 'stretch'){ a.dur = 1.7; }
+  else if (act === 'perk')   { a.dur = rand(1.6, 3); a.lookT = 0.2; }   // うさぎ: 立ち上がって見回す
+  else if (act === 'toss')   { a.dur = 1.1; }                            // 馬: 頭をブルッと振る
 }
 
 // 放物線ホップを開始(その場ホップ or 岩/干し草への乗り降り)。next=着地後に入る状態
@@ -414,9 +558,9 @@ function moveToward(a, dt) {
     const v = a.spec.speed * a.mul;
     pos.x += fx * v * dt;
     pos.z += fz * v * dt;
-    if (a.kind !== 'cat') {               // ペン内種は柵からはみ出さない保険
-      pos.x = Math.max(-2.9, Math.min(2.9, pos.x));
-      pos.z = Math.max(-2.2, Math.min(2.2, pos.z));
+    if (PEN_KINDS.has(a.kind)) {          // ペン内種は柵からはみ出さない保険
+      pos.x = Math.max(-3.5, Math.min(3.5, pos.x));
+      pos.z = Math.max(-2.6, Math.min(2.6, pos.z));
     }
     a.moving = true;
     a.walkPhase += dt * a.spec.freq * a.mul;
@@ -437,10 +581,26 @@ function stateMachine(a, dt) {
       if (!a.tgt || moveToward(a, dt) || a.t >= a.dur) pickNext(a);
       break;
     case 'graze':
-      a.headPitchTgt = 0.95 + Math.sin(a.t * 9) * 0.06;  // 鼻先を地面へ+もぐもぐ
+      // 鼻先を地面へ+もぐもぐ(馬は首が高いぶん深く下げる)
+      a.headPitchTgt = (a.kind === 'horse' ? 1.15 : 0.95) + Math.sin(a.t * 9) * 0.06;
       a.bodyPitchTgt = 0.14;
       if (a.t >= a.dur) pickNext(a);
       break;
+    case 'perk': {  // うさぎ: 後ろ足で立ち上がり、耳をピンと立てて見回す
+      a.bodyPitchTgt = -0.5;
+      a.headPitchTgt = 0.25;   // 体が反るぶん頭は前へ(視線を水平に)
+      a.lookT -= dt;
+      if (a.lookT <= 0) { a.headYawTgt = rand(-0.6, 0.6); a.lookT = rand(0.5, 1.1); }
+      if (a.t >= a.dur) { a.headYawTgt = 0; pickNext(a); }
+      break;
+    }
+    case 'toss': {  // 馬: 頭を上げてブルッと振る(たてがみを揺らす仕草)
+      const k = Math.sin(Math.PI * Math.min(1, a.t / a.dur));
+      a.headPitchTgt = -0.4 * k;
+      a.p.head.rotation.z = Math.sin(a.t * 16) * 0.16 * k;
+      if (a.t >= a.dur) { a.p.head.rotation.z = 0; pickNext(a); }
+      break;
+    }
     case 'flap': {
       const k = Math.sin(Math.PI * Math.min(1, a.t / a.dur));
       for (const f of a.p.flippers ?? []) {
@@ -493,10 +653,24 @@ function stateMachine(a, dt) {
   }
 }
 
-// 歩行(4足=対角の脚を交互に振る / ペンギン=左右によちよち)。止まったら減衰して静止へ
+// 歩行(4足=対角の脚を交互に振る / ペンギン=よちよち / うさぎ=ぴょんぴょん)。止まったら減衰して静止へ
 function gait(a, dt) {
   const p = a.p, s = Math.sin(a.walkPhase);
   const damp = Math.max(0, 1 - dt * 9);
+  if (a.kind === 'rabbit') {
+    // 跳ね移動: sinの正の山だけ宙に浮く。上昇でびよん、着地でぺたん、耳は後ろへふわっ
+    const air = a.moving ? Math.max(0, s) : 0;
+    p.lift.position.y += (air * 0.11 - p.lift.position.y) * Math.min(1, dt * 18);
+    if (!a.hop) {
+      p.lift.scale.y += (1 + air * 0.18 - p.lift.scale.y) * Math.min(1, dt * 14);
+      const sxz = 1 - air * 0.06;
+      p.lift.scale.x = sxz; p.lift.scale.z = sxz;
+    }
+    for (const leg of p.legs) leg.rotation.x += (air * 0.55 - leg.rotation.x) * Math.min(1, dt * 14); // 脚を畳む
+    const earX = a.state === 'perk' ? 0.05 : -0.15 - air * 0.35;
+    for (const ear of p.ears) ear.rotation.x += (earX - ear.rotation.x) * Math.min(1, dt * 10);
+    return;
+  }
   if (a.kind === 'penguin') {
     if (a.moving) {
       p.lift.rotation.z = s * 0.15;
@@ -562,6 +736,12 @@ function micro(a, dt) {
   } else if (a.kind === 'goat' && p.tail) {
     const wag = (a.state === 'hop' || a.hop) ? 7 : 1.2;
     p.tail.rotation.z = Math.sin(a.tailT * wag) * (wag > 2 ? 0.35 : 0.12);
+  } else if (a.kind === 'horse' && p.tail) {
+    p.tail.rotation.z = Math.sin(a.tailT * 1.2) * 0.2;         // ふさふさを大きくゆったり
+    p.tail.rotation.x = -0.15 + Math.sin(a.tailT * 0.7) * 0.1;
+  } else if (a.kind === 'sheep' && p.tail) {
+    const wag = (a.state === 'hop' || a.hop) ? 9 : 0;           // プロンク中だけ小さく震える
+    p.tail.rotation.z = wag ? Math.sin(a.tailT * wag) * 0.3 : 0;
   } else if (a.kind === 'cat' && p.tail) {
     // 2節のS字スイング。眠り中は体に巻き付ける
     const wrap = a.sleepK;
@@ -615,9 +795,12 @@ export class RanchAnimals {
     const defs = [   // [種, x, z, 個体差(速さ/歩調の倍率)]
       ['penguin', -0.9,  0.5, 1.0],
       ['penguin',  0.8, -0.5, 1.18],
-      ['cow',     -1.4, -0.9, 1.0],
-      ['goat',     1.1,  0.3, 1.0],
-      ['cat',      5.1,  1.4, 1.0],
+      ['cow',     -1.6, -0.9, 1.0],
+      ['goat',     1.1,  0.4, 1.0],
+      ['sheep',   -0.3,  1.2, 1.0],
+      ['horse',    0.4, -1.7, 1.0],
+      ['cat',      5.5,  1.6, 1.0],
+      ['rabbit',   2.0,  4.3, 1.0],
     ];
     for (const [kind, x, z, mul] of defs) {
       const spec = SPECIES[kind];
