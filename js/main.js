@@ -524,6 +524,46 @@ const fishAction = new ProximityAction({ radius: 2.0, startDelay: 0.4, interval:
 let fishing = false;
 const _backPos = new THREE.Vector3(); // 釣りフライトの着地目標(毎フレームのVector3生成を回避)
 
+// FB6釣りモーション: 竿+糸+ウキ(釣り中だけ表示)。「棒立ちで魚だけ積み上がる」の解消。
+// 竿はarmR(右腕グループ)の子=腕の構えに追従。糸は竿先→弛み中点→ウキの3点Line。
+const rod = new THREE.Group();
+{
+  const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 6), lambert(0x5d4a33));
+  grip.position.y = 0.05;
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.042, 1.25, 6), lambert(0xb0703c));
+  stick.position.y = 0.7;
+  rod.add(grip, stick);
+}
+const rodTip = new THREE.Object3D();
+rodTip.position.y = 1.38;
+rod.add(rodTip);
+rod.position.set(0, -0.58, 0.12);   // ミトンの位置に握らせる
+// 腕(構え-1.15)と合算で+0.5=竿先が前上がりになる角度(rotation.x正=+z前方へ傾く)
+rod.rotation.x = 1.65;
+rod.visible = false;
+player.armR.add(rod);
+
+const BOBBER_POS = new THREE.Vector3(0, 0.1, -23.6); // fishSpot(0,-21.4)の沖(水域内)
+const bobber = new THREE.Group();
+{
+  const top = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), lambert(0xd94b4b));
+  top.position.y = 0.05;
+  const bottom = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), lambert(0xf4f4f2));
+  bottom.position.y = -0.04;
+  bobber.add(top, bottom);
+}
+bobber.visible = false;
+scene.add(bobber);
+const fishLineGeo = new THREE.BufferGeometry();
+fishLineGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(9), 3)); // 3点折れ線
+const fishLine = new THREE.Line(fishLineGeo, new THREE.LineBasicMaterial({ color: 0x4a3a30 }));
+fishLine.frustumCulled = false; // 毎フレーム頂点を書き換えるためバウンディング更新を省く
+fishLine.visible = false;
+scene.add(fishLine);
+const _rodTipW = new THREE.Vector3();
+let rodJerk = 0;    // 釣り上げた瞬間の竿のしなり(残り秒)
+let bobberDip = 0;  // ウキの沈み込み(残り秒)
+
 // 調理(焚き火完成後、半径2.2m内で生魚を持っていると0.8秒ごとに焼き魚へ変換)。
 // 焚き火の周りは動いても調理継続でよい(requireStill: false)。fire_campはcampが常に解錠済みのため起動時から存在。
 const cook = new ProximityAction({ radius: 2.2, startDelay: 0.4, interval: 0.8, requireStill: false });
@@ -641,15 +681,41 @@ function step(dt) {
       _backPos.set(player.root.position.x, 1.8, player.root.position.z); // 背中付近を狙う
       world.spawnFishCatch(_backPos);                       // 水面→背中フライト + 水しぶき
       sfx.pop();                                            // 釣り上げポコッ(G5)
+      rodJerk = 0.3; bobberDip = 0.35;                      // FB6: 竿がしなり、ウキが沈んで跳ねる
     }
   }
-  // 釣り中の演出: 竿なし・体を軽く揺らす(満杯時は演出停止=働いても増えない見た目を防ぐ)。
+  // 釣り中の演出(FB6): ウキの方を向いて両腕で竿を構え、糸を水面へ垂らす。
+  // 釣り中はanimateWalkをスキップしている(上のif)ので腕はここが専有。満杯時は演出停止。
   if (fishAction.active && atFishSpot && !full) {
     fishing = true;
     player.bodyGroup.rotation.x = 0.05 * Math.sin(fishAction.timer * 3);
+    faceAngle(player.root, Math.atan2(BOBBER_POS.x - player.root.position.x, BOBBER_POS.z - player.root.position.z), dt, 6);
+    rodJerk = Math.max(0, rodJerk - dt);
+    bobberDip = Math.max(0, bobberDip - dt);
+    const jerk = rodJerk > 0 ? Math.sin(Math.PI * rodJerk / 0.3) : 0;
+    const dip = bobberDip > 0 ? Math.sin(Math.PI * bobberDip / 0.35) : 0;
+    const k = Math.min(1, dt * 10);
+    player.armR.rotation.x += (-1.15 - 0.5 * jerk - player.armR.rotation.x) * k;
+    player.armL.rotation.x += (-0.85 - 0.4 * jerk - player.armL.rotation.x) * k;
+    rod.visible = true;
+    bobber.visible = true;
+    bobber.position.set(BOBBER_POS.x, BOBBER_POS.y + Math.sin(elapsed * 2.3) * 0.03 - 0.14 * dip, BOBBER_POS.z);
+    bobber.rotation.z = Math.sin(elapsed * 1.7) * 0.12;
+    rodTip.getWorldPosition(_rodTipW);
+    const lp = fishLine.geometry.attributes.position.array;
+    lp[0] = _rodTipW.x; lp[1] = _rodTipW.y; lp[2] = _rodTipW.z;
+    lp[3] = (_rodTipW.x + bobber.position.x) / 2;
+    lp[4] = (_rodTipW.y + bobber.position.y) / 2 - 0.32 + 0.24 * jerk;  // 釣れた瞬間は糸がピンと張る
+    lp[5] = (_rodTipW.z + bobber.position.z) / 2;
+    lp[6] = bobber.position.x; lp[7] = bobber.position.y + 0.05; lp[8] = bobber.position.z;
+    fishLine.geometry.attributes.position.needsUpdate = true;
+    fishLine.visible = true;
   } else {
-    if (fishing) player.bodyGroup.rotation.x = 0; // 釣り終了で前傾を戻す
+    if (fishing) player.bodyGroup.rotation.x = 0; // 釣り終了で前傾を戻す(腕はanimateWalkの減衰で戻る)
     fishing = false;
+    rod.visible = false;
+    bobber.visible = false;
+    fishLine.visible = false;
   }
 
   // 調理ロジック(焚き火完成後、半径2.2m内で生魚を持っていると0.8秒ごとに1匹変換。要静止なし=歩いても継続)。

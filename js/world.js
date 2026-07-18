@@ -2,7 +2,7 @@
 // 移植元: reference/proto-a.html 150-156行(土の地面) / 178-198行(makeTree) / 591-593行(木パルス減衰)
 //        583-587行(easeOutBack) / 535-554行(放物線フライト)
 import * as THREE from 'three';
-import { lambert, blobShadow, roundedRectShape } from './render.js';
+import { lambert, blobShadow, roundedRectShape, mergeGeos } from './render.js';
 import { dashedRect } from './build.js';
 import { createKindMesh } from './entities.js';
 import { AREAS, areAreasAdjacent, RESOURCES } from './data.js';
@@ -55,19 +55,28 @@ export function makeTree(scale) {
  * camp/forest は T7 の植樹をそのまま維持。lake は木を植えない(水面に木が生えないように)。
  * decor は「解錠したのに広くて寂しい」対策(FB2 G5)。施設(中心)・道(辺中点)・釣り場を避けた外周寄り。 */
 const AREA_CONTENT = {
-  camp:    { trees: [[-10, -6, 1.0], [10, -6, 0.85]], decor: [['snowman', -10, 7, 1]] },
+  // FB6: 各エリアにテーマの小物を追加(camp=暮らし/forest=伐採/farm=かかし/market=商い)。
+  // ranchは動物・小物が既に濃いので追加なし。位置は施設・木・道(辺中点)・牧場の縄張り帯を避けてある。
+  camp:    { trees: [[-10, -6, 1.0], [10, -6, 0.85]],
+             decor: [['snowman', -10, 7, 1], ['firewood', -8.5, 2.5, 1], ['barrel', 8.6, 1.8, 1],
+                     ['xmastree', 10.8, 6.8, 1], ['lantern', 3, 8.6, 1]] },
   forest:  { trees: [[-8, -6, 1.0], [8, -6, 0.9], [-9, 6, 0.95], [8, 6, 0.85], [0, -8, 1.05]],
-             decor: [['rock', 11, 0, 0.9], ['bush', -4, 8, 1]] },
+             decor: [['rock', 11, 0, 0.9], ['bush', -4, 8, 1], ['stump', 5, -7.5, 1],
+                     ['stump', -5.5, 8, 0.9], ['firewood', 3.2, 7, 1], ['sapling', 11, 2.5, 1]] },
   lake:    { trees: [], build: buildLakeContent, // 湖: 木なし + 水面/泳ぐ魚/釣り場
-             decor: [['rock', -9, -6, 1.1], ['rock', 10, 6, 0.8], ['bush', -11, 5, 0.9]] },
+             decor: [['rock', -9, -6, 1.1], ['rock', 10, 6, 0.8], ['bush', -11, 5, 0.9],
+                     ['lantern', 2.2, 8.7, 1], ['sapling', -11, -7.5, 0.9]] },
   hut:     { trees: [[-9, -6, 0.8]],
-             decor: [['snowman', 7, -7, 0.9], ['bush', -5, 7, 1], ['rock', 10, 5, 0.7]] },
+             decor: [['snowman', 7, -7, 0.9], ['bush', -5, 7, 1], ['rock', 10, 5, 0.7],
+                     ['lantern', -3, -8.2, 1], ['barrel', 4.8, 7.2, 1]] },
   fishery: { trees: [[-9, -6, 0.8]],
-             decor: [['rock', 8, -6, 1], ['rock', 6.3, -4.6, 0.6], ['bush', -7, 6, 0.9]] },
+             decor: [['rock', 8, -6, 1], ['rock', 6.3, -4.6, 0.6], ['bush', -7, 6, 0.9],
+                     ['scarecrow', 4.5, -3.5, 1], ['sapling', -10.5, 4, 0.9]] },
   ranch:   { trees: [[-9, -6, 0.8]],
              decor: [['bush', 7, -6, 1.1], ['bush', 9, -4.2, 0.8], ['bush', -7, 7, 0.9], ['rock', 10, 6, 0.7]] },
   market:  { trees: [[-9, -6, 0.8]],
-             decor: [['bush', -8, -6, 1], ['rock', 8, -7, 0.9], ['bush', 9, 5, 0.85]] },
+             decor: [['bush', -8, -6, 1], ['rock', 8, -7, 0.9], ['bush', 9, 5, 0.85],
+                     ['flag', -4.5, -7, 1], ['flag', 4.5, -7, 1], ['barrel', 8.5, 2.5, 1]] },
 };
 const DEFAULT_CONTENT = { trees: [[-9, -6, 0.8]], decor: [['bush', 9, 6, 0.9]] }; // 未登録エリアの最低限
 
@@ -131,7 +140,164 @@ function makeBush() {
   return g;
 }
 
-const DECOR_BUILDERS = { snowman: makeSnowman, rock: makeRock, bush: makeBush };
+/* ---- FB6装飾: 追加デコ(画面の寂しさ対策)。全てライト不使用・当たり判定なし ---- */
+const WOOD_MAT = lambert(0x9c6b3f);
+const WOOD_DARK = lambert(0x5d4a33);
+const STRAW_MAT = lambert(0xe4c24e);
+const GREEN_MAT = lambert(0x2f8f4f);
+const RED_MAT = lambert(0xc0392b);
+const GOLD_MAT = lambert(0xe8b04a);
+const GLOW_MAT = new THREE.MeshBasicMaterial({ color: 0xffb84d }); // ランタンの灯(Basic=陰にならず光って見える)
+
+// ランタン柱(灯はPointLight無しのBasic球=負荷ゼロで暖色のアクセント)
+function makeLantern() {
+  const g = new THREE.Group();
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.06, 1.45, 6), WOOD_DARK);
+  post.position.y = 0.72;
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), GLOW_MAT);
+  glow.position.y = 1.28;
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.26), WOOD_DARK);
+  cap.position.y = 1.47;
+  const snow = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.05, 0.28), SNOW_MAT);
+  snow.position.y = 1.53;
+  g.add(post, glow, cap, snow, blobShadow(0.7, 0.7, 0.05));
+  return g;
+}
+
+// 樽(タガ2本+雪の蓋)
+function makeBarrel() {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.34, 0.62, 9), WOOD_MAT);
+  body.position.y = 0.31;
+  const bandGeo = new THREE.CylinderGeometry(0.345, 0.345, 0.06, 9);
+  const b1 = new THREE.Mesh(bandGeo, WOOD_DARK); b1.position.y = 0.16;
+  const b2 = new THREE.Mesh(bandGeo, WOOD_DARK); b2.position.y = 0.47;
+  const lid = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.05, 9), SNOW_MAT);
+  lid.position.y = 0.64;
+  g.add(body, b1, b2, lid, blobShadow(0.95, 0.95, 0.05));
+  return g;
+}
+
+// 薪の山(2段の井桁+上に雪)
+function makeFirewood() {
+  const g = new THREE.Group();
+  const logGeo = new THREE.CylinderGeometry(0.09, 0.09, 0.72, 7).rotateZ(Math.PI / 2);
+  for (let i = 0; i < 3; i++) {
+    const l = new THREE.Mesh(logGeo, WOOD_MAT);
+    l.position.set(0, 0.09, -0.15 + i * 0.15);
+    g.add(l);
+  }
+  for (let i = 0; i < 2; i++) {
+    const l = new THREE.Mesh(logGeo, WOOD_MAT);
+    l.rotation.y = Math.PI / 2;
+    l.position.set(-0.08 + i * 0.16, 0.27, 0);
+    g.add(l);
+  }
+  const snow = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.06, 0.4), SNOW_MAT);
+  snow.position.y = 0.39;
+  g.add(snow, blobShadow(1.1, 0.95, 0.05));
+  return g;
+}
+
+// 切り株(明るい切り口+雪)
+function makeStump() {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.35, 0.42, 8), lambert(0x8a5f38));
+  trunk.position.y = 0.21;
+  const top = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.27, 0.03, 8), lambert(0xd9b57c));
+  top.position.y = 0.43;
+  const snow = new THREE.Mesh(new THREE.SphereGeometry(0.14, 7, 5), SNOW_MAT);
+  snow.scale.set(1.3, 0.4, 1);
+  snow.position.set(0.1, 0.45, 0.06);
+  g.add(trunk, top, snow, blobShadow(0.95, 0.95, 0.05));
+  return g;
+}
+
+// 幼木(小さなモミ+雪の帽子)
+function makeSapling() {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.07, 0.3, 6), WOOD_DARK);
+  trunk.position.y = 0.15;
+  const c1 = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.5, 7), GREEN_MAT);
+  c1.position.y = 0.5;
+  const c2 = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.42, 7), GREEN_MAT);
+  c2.position.y = 0.78;
+  const snow = new THREE.Mesh(new THREE.ConeGeometry(0.13, 0.18, 7), SNOW_MAT);
+  snow.position.y = 0.98;
+  g.add(trunk, c1, c2, snow, blobShadow(0.85, 0.85, 0.05));
+  return g;
+}
+
+// 旗(赤い旗+金の玉。市場の呼び込み感)
+function makeFlag() {
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 1.9, 6), WOOD_DARK);
+  pole.position.y = 0.95;
+  const flag = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.32, 0.03), RED_MAT);
+  flag.position.set(0.31, 1.66, 0);
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.055, 7, 5), GOLD_MAT);
+  ball.position.y = 1.93;
+  g.add(pole, flag, ball, blobShadow(0.6, 0.6, 0.05));
+  return g;
+}
+
+// かかし(農場の番人。わら頭+帽子+赤マフラー)
+function makeScarecrow() {
+  const g = new THREE.Group();
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.055, 1.5, 6), WOOD_MAT);
+  pole.position.y = 0.75;
+  const arms = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.07, 0.07), WOOD_MAT);
+  arms.position.y = 1.14;
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), STRAW_MAT);
+  head.position.y = 1.52;
+  const eyeGeo = new THREE.SphereGeometry(0.035, 5, 4);
+  const eyeMat = lambert(0x2b2b2b);
+  for (const sx of [-1, 1]) {
+    const e = new THREE.Mesh(eyeGeo, eyeMat);
+    e.position.set(sx * 0.07, 1.56, 0.17);
+    g.add(e);
+  }
+  const hat = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.3, 7), WOOD_DARK);
+  hat.position.y = 1.75;
+  const scarf = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.09, 0.22), RED_MAT);
+  scarf.position.y = 1.34;
+  g.add(pole, arms, head, hat, scarf, blobShadow(0.95, 0.8, 0.05));
+  return g;
+}
+
+// 飾りツリー(サンタの村のクリスマスツリー。色玉+てっぺんに金の玉)
+function makeXmasTree() {
+  const g = new THREE.Group();
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 0.5, 7), WOOD_DARK);
+  trunk.position.y = 0.25;
+  const cones = [[0.75, 0.85, 0.62], [0.55, 0.75, 1.08], [0.36, 0.6, 1.5]]; // [r, h, y]
+  for (const [r, h, y] of cones) {
+    const c = new THREE.Mesh(new THREE.ConeGeometry(r, h, 8), GREEN_MAT);
+    c.position.y = y;
+    g.add(c);
+  }
+  const star = new THREE.Mesh(new THREE.SphereGeometry(0.1, 7, 6), GOLD_MAT);
+  star.position.y = 1.88;
+  // 色玉オーナメント(コーンの縁に散らす)
+  const balls = [[0.5, 0.42, 0.4, 0xd94b4b], [-0.45, 0.5, 0.35, 0x5b8dd9], [0.1, 0.55, -0.55, 0xe8b04a],
+                 [-0.32, 0.92, 0.32, 0xd94b4b], [0.34, 0.98, -0.2, 0x5b8dd9], [0, 1.32, 0.3, 0xd94b4b]];
+  const ballGeo = new THREE.SphereGeometry(0.07, 7, 5);
+  for (const [x, y, z, col] of balls) {
+    const b = new THREE.Mesh(ballGeo, lambert(col));
+    b.position.set(x, y, z);
+    g.add(b);
+  }
+  const snow = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.2, 8), SNOW_MAT);
+  snow.position.y = 1.72;
+  g.add(trunk, star, snow, blobShadow(1.7, 1.5, 0.05));
+  return g;
+}
+
+const DECOR_BUILDERS = {
+  snowman: makeSnowman, rock: makeRock, bush: makeBush,
+  lantern: makeLantern, barrel: makeBarrel, firewood: makeFirewood, stump: makeStump,
+  sapling: makeSapling, flag: makeFlag, scarecrow: makeScarecrow, xmastree: makeXmasTree,
+};
 
 const DIRT_MAT = lambert(0xcaa470);      // 明るい暖色の土(参照動画のタン色に寄せる)
 const RIM_MAT = lambert(0xb08a58);       // 土の縁取り(ひとまわり大きい下敷きで「島」感を出す)
@@ -293,6 +459,26 @@ export class World {
     const dirt = new THREE.Mesh(dirtGeo, DIRT_MAT);
     dirt.position.set(area.cx, 0.03, area.cz);
     this.scene.add(dirt);
+
+    // FB6: 地面の雪だまり(まだら模様)。座標由来の決定的疑似乱数で敷き、1エリア=1メッシュに結合。
+    // 中央ゾーン(施設や牧場ペン)は避ける。「土一色で寂しい」対策の主役(ドローコール+1/エリアのみ)。
+    const patchGeos = [];
+    const salt = area.cx * 7.31 + area.cz * 3.77;
+    for (let i = 0; i < 12; i++) {
+      const h1 = Math.sin(i * 12.9898 + salt) * 43758.5453;
+      const h2 = Math.sin(i * 78.233 + salt) * 12543.8567;
+      const px = ((h1 - Math.floor(h1)) * 2 - 1) * (area.hw - 2.4);
+      const pz = ((h2 - Math.floor(h2)) * 2 - 1) * (area.hd - 2.4);
+      if (Math.abs(px) < 5 && Math.abs(pz) < 4.2) continue;   // 施設/ペンの中央ゾーンは敷かない
+      const r = 0.5 + (((h1 * 3) % 1) + 1) % 1 * 0.7;
+      patchGeos.push(new THREE.CircleGeometry(r, 9).rotateX(-Math.PI / 2).translate(px, 0.042, pz));
+    }
+    if (patchGeos.length) {
+      const patches = new THREE.Mesh(mergeGeos(patchGeos), SNOW_MAT);
+      patches.position.set(area.cx, 0, area.cz);
+      this.scene.add(patches);
+      if (animated) this._animateIn(patches, 1);
+    }
     if (animated) { this._animateIn(rim, 1); this._animateIn(dirt, 1); }
 
     // 隣接する解錠済みエリアへ「道」を敷く(camp⇔lakeは橋があるので道は敷かない)。
