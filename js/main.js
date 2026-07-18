@@ -454,6 +454,39 @@ addEventListener('blur', () => { pointers.clear(); pinch = null; removePointer(n
 addEventListener('wheel', e => { camZoom = clampZoom(camZoom * (e.deltaY > 0 ? 1.1 : 0.9)); }, { passive: true }); // PC: ホイールでもズーム
 addEventListener('keydown', e => keys.add(e.key.toLowerCase()));
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
+
+// ==== 「愛でる」(FB5後半): 短いタップで動物をなでる ====
+// ジョイスティックはデッドゾーン8px+ドラッグ、ピンチは2本指なので、
+// 「1本指・0.35秒未満・12px未満」だけをタップ=なでる操作にすれば既存操作と衝突しない。
+// 上のpointerdownリスナーが先に走りpointersへ登録済みなので、ここでsizeを見れば1本目かどうか分かる。
+const petRaycaster = new THREE.Raycaster();
+let tapStart = null;   // {id, x, y, t(ms)}
+addEventListener('pointerdown', e => {
+  if (e.target.closest && e.target.closest('button')) { tapStart = null; return; }
+  tapStart = pointers.size <= 1
+    ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() }
+    : null;   // 2本目=ピンチはタップ扱いしない
+});
+addEventListener('pointerup', e => {
+  const st = tapStart;
+  tapStart = null;
+  window.__petTrace = { st: !!st, idOk: st && e.pointerId === st.id }; // 検証用(軽量なので常設可)
+  if (!st || e.pointerId !== st.id) return;
+  if (performance.now() - st.t > 350) return;
+  if (Math.hypot(e.clientX - st.x, e.clientY - st.y) > 12) return;
+  const animals = buildMgr.sites.get('ranchpen')?.extra?.animals;
+  window.__petTrace.animals = !!animals;
+  if (!animals) return;
+  petRaycaster.setFromCamera(
+    { x: (e.clientX / innerWidth) * 2 - 1, y: -(e.clientY / innerHeight) * 2 + 1 }, camera);
+  const hit = animals.petAt(petRaycaster.ray, player.root.position);
+  if (hit) {
+    // ★鳴き声フック: オーナー支給の音声ファイルが来たら hit.kind で種別ボイスをここで鳴らす。
+    //   当面は「触った手応え」のポップ音のみ(プロシージャル。鳴き声ではない)。
+    sfx.pop(hit.x, hit.z);
+  }
+});
+addEventListener('pointercancel', () => { tapStart = null; });
 let keyActive = false;
 function pollKeys() {
   let x = 0, z = 0;

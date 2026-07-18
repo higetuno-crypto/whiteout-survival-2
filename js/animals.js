@@ -524,26 +524,27 @@ function makeReindeer() {
 }
 
 /* ================= 種ごとの性格(速度・歩幅・とる行動と重み) ================= */
+// hit: なでタップの当たり球 [中心の高さ, 半径]。指先で押しやすいよう実体よりやや大きめ
 const SPECIES = {
-  penguin: { make: makePenguin, speed: 0.62, turn: 7,   freq: 9.5, amp: 0,
+  penguin: { make: makePenguin, speed: 0.62, turn: 7,   freq: 9.5, amp: 0,   hit: [0.3, 0.45],
              acts: [['wander', 3], ['idle', 2], ['flap', 1.3], ['hop', 1]] },
-  cow:     { make: makeCow,     speed: 0.45, turn: 4.5, freq: 5.5, amp: 0.5,
+  cow:     { make: makeCow,     speed: 0.45, turn: 4.5, freq: 5.5, amp: 0.5, hit: [0.55, 0.75],
              acts: [['wander', 2.4], ['idle', 2], ['graze', 3.2]] },
-  goat:    { make: makeGoat,    speed: 0.85, turn: 8,   freq: 8.5, amp: 0.7,
+  goat:    { make: makeGoat,    speed: 0.85, turn: 8,   freq: 8.5, amp: 0.7, hit: [0.42, 0.6],
              acts: [['wander', 3], ['idle', 1.6], ['graze', 2.2], ['hop', 1.1], ['rock', 1.5]] },
-  cat:     { make: makeCat,     speed: 0.95, turn: 9,   freq: 9,   amp: 0.55,
+  cat:     { make: makeCat,     speed: 0.95, turn: 9,   freq: 9,   amp: 0.55, hit: [0.25, 0.45],
              acts: [['wander', 3], ['idle', 1.2], ['sit', 1.6], ['nap', 1.6]] },
-  sheep:   { make: makeSheep,   speed: 0.5,  turn: 5,   freq: 6,   amp: 0.5,
+  sheep:   { make: makeSheep,   speed: 0.5,  turn: 5,   freq: 6,   amp: 0.5, hit: [0.45, 0.62],
              acts: [['wander', 2.6], ['idle', 2], ['graze', 3], ['hop', 0.9]] },   // hop=プロンク
-  horse:   { make: makeHorse,   speed: 0.7,  turn: 4.5, freq: 6.5, amp: 0.55,
+  horse:   { make: makeHorse,   speed: 0.7,  turn: 4.5, freq: 6.5, amp: 0.55, hit: [0.65, 0.8],
              acts: [['wander', 3], ['idle', 2], ['graze', 2.8], ['toss', 1.2]] },
-  rabbit:  { make: makeRabbit,  speed: 1.1,  turn: 10,  freq: 10,  amp: 0,
+  rabbit:  { make: makeRabbit,  speed: 1.1,  turn: 10,  freq: 10,  amp: 0,   hit: [0.24, 0.45],
              acts: [['wander', 3.4], ['idle', 2], ['perk', 1.8]] },
-  pig:     { make: makePig,     speed: 0.6,  turn: 6,   freq: 7,   amp: 0.55,
+  pig:     { make: makePig,     speed: 0.6,  turn: 6,   freq: 7,   amp: 0.55, hit: [0.3, 0.55],
              acts: [['wander', 2.8], ['idle', 2], ['graze', 3], ['hop', 0.7]] },   // graze=鼻掘り
-  dog:     { make: makeDog,     speed: 1.15, turn: 9,   freq: 10,  amp: 0.6,
+  dog:     { make: makeDog,     speed: 1.15, turn: 9,   freq: 10,  amp: 0.6, hit: [0.28, 0.5],
              acts: [['patrol', 3.2], ['idle', 1.8], ['sit', 1.5], ['stretch', 1.3]] }, // stretch=プレイバウ
-  reindeer:{ make: makeReindeer,speed: 0.65, turn: 5,   freq: 6.5, amp: 0.55,
+  reindeer:{ make: makeReindeer,speed: 0.65, turn: 5,   freq: 6.5, amp: 0.55, hit: [0.7, 0.85],
              acts: [['wander', 3], ['idle', 2], ['graze', 2.4], ['toss', 1.2], ['hop', 0.6]] },
 };
 
@@ -557,6 +558,26 @@ const PATROL_RING = [
   { x: -(RANCH_LAYOUT.hw + 0.85), z: -(RANCH_LAYOUT.hd + 0.9) },
   { x: -(RANCH_LAYOUT.hw + 0.85), z: RANCH_LAYOUT.hd + 0.9 },
 ];
+
+// ハート(なでリアクション)。テクスチャは全ハートで1枚共有、スプライトはRanchAnimalsがプールする
+let _heartTex = null;
+function heartTexture() {
+  if (_heartTex) return _heartTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.font = '46px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('❤️', 32, 36);
+  _heartTex = new THREE.CanvasTexture(c);
+  return _heartTex;
+}
+
+// なでタップの当たり判定用テンポラリ(タップ時のみ使用)
+const _PET_SPHERE = new THREE.Sphere();
+const _PET_HIT = new THREE.Vector3();
+const _PET_GP = new THREE.Vector3();
 
 // 「💤」スプライト(猫のお昼寝)。CanvasTextureで1個ずつ生成(牧場に猫は1匹なのでプール不要)
 function makeZzz() {
@@ -742,7 +763,7 @@ function moveToward(a, dt) {
   return false;
 }
 
-function stateMachine(a, dt) {
+function stateMachine(a, dt, mgr) {
   const L = RANCH_LAYOUT;
   a.t += dt;
   switch (a.state) {
@@ -766,6 +787,29 @@ function stateMachine(a, dt) {
       if (moveToward(a, dt)) { a.wpIdx = (a.wpIdx + a.wpDir + 4) % 4; a.tgt = PATROL_RING[a.wpIdx]; }
       if (a.t >= a.dur) pickNext(a);
       break;
+    case 'love': {  // なでられた喜び: プレイヤーの方を向いて跳ねる+ハート(犬は2回、うさぎは高く)
+      if (a.loveFace !== null) faceAngle(a.p.root, a.loveFace, dt, 10);
+      if (!a.love1 && a.t > 0.12) { a.love1 = true; a.reps = a.kind === 'dog' ? 2 : 1; }
+      if (a.love1 && a.reps > 0 && !a.hop) {
+        a.reps--;
+        const pos = a.p.root.position;
+        startHop(a, pos.x, pos.z, pos.y, 0.3, a.kind === 'rabbit' ? 0.24 : 0.16, null);
+      }
+      if (a.kind === 'penguin') {  // ペンギンは羽もパタパタ
+        const k = Math.sin(Math.PI * Math.min(1, a.t / a.dur));
+        for (const f of a.p.flippers ?? []) {
+          const sx = f.userData.restZ > 0 ? 1 : -1;
+          f.rotation.z = f.userData.restZ + sx * (0.5 * k + Math.sin(a.t * 24) * 0.4 * k);
+        }
+      }
+      if (!a.love2 && a.t > 0.8) {  // 余韻の小ハート
+        a.love2 = true;
+        const pos = a.p.root.position;
+        mgr.burstHearts(pos.x, pos.y + a.spec.hit[0] + a.spec.hit[1], pos.z, 2);
+      }
+      if (a.t >= a.dur) { a.love1 = a.love2 = false; a.headYawTgt = 0; pickNext(a); }
+      break;
+    }
     case 'perk': {  // うさぎ: 後ろ足で立ち上がり、耳をピンと立てて見回す
       a.bodyPitchTgt = -0.5;
       a.headPitchTgt = 0.25;   // 体が反るぶん頭は前へ(視線を水平に)
@@ -923,7 +967,7 @@ function micro(a, dt) {
     const wag = (a.state === 'hop' || a.hop) ? 9 : 0;           // プロンク中だけ小さく震える
     p.tail.rotation.z = wag ? Math.sin(a.tailT * wag) * 0.3 : 0;
   } else if (a.kind === 'dog' && p.tail) {
-    const fast = (a.moving || a.state === 'stretch') ? 14 : 7;  // 犬はいつでもフリフリ。遊ぶ時は高速
+    const fast = (a.moving || a.state === 'stretch' || a.state === 'love') ? 14 : 7; // 犬はいつでもフリフリ。遊ぶ時は高速
     p.tail.rotation.z = Math.sin(a.tailT * fast) * 0.4;
   } else if (a.kind === 'pig' && p.tail) {
     p.tail.rotation.y = Math.sin(a.tailT * (a.moving ? 8 : 2)) * 0.25;  // くるん尻尾がぷりぷり
@@ -970,9 +1014,9 @@ function micro(a, dt) {
   }
 }
 
-function updateAnimal(a, dt) {
+function updateAnimal(a, dt, mgr) {
   if (a.hop) animateHop(a, dt);
-  else stateMachine(a, dt);
+  else stateMachine(a, dt, mgr);
   gait(a, dt);
   micro(a, dt);
 }
@@ -981,6 +1025,9 @@ function updateAnimal(a, dt) {
 export class RanchAnimals {
   constructor(parent) {
     this.animals = [];
+    this._parent = parent;
+    this._hearts = [];      // 表示中: {sp, t, dur, x, y, z, vy, ph, s}
+    this._heartPool = [];
     const defs = [   // [種, x, z, 個体差(速さ/歩調の倍率)]
       ['penguin', -0.9,  0.5, 1.0],
       ['penguin',  0.8, -0.5, 1.18],
@@ -1008,6 +1055,7 @@ export class RanchAnimals {
         blinkT: rand(1, 4), blinkA: 0, earT: rand(2, 6), earA: null,
         breath: Math.random() * 6, tailT: Math.random() * 6,
         sitK: 0, sleepK: 0, zzz: null,
+        love1: false, love2: false, loveFace: null,
       };
       if (kind === 'cat') { a.zzz = makeZzz(); p.root.add(a.zzz); }
       this.animals.push(a);
@@ -1015,6 +1063,84 @@ export class RanchAnimals {
   }
 
   update(dt) {
-    for (const a of this.animals) updateAnimal(a, dt);
+    for (const a of this.animals) updateAnimal(a, dt, this);
+    // ハートの浮遊アニメ(上昇+ゆらゆら+ポップイン+フェードアウト。使い終わったらプールへ)
+    for (let i = this._hearts.length - 1; i >= 0; i--) {
+      const h = this._hearts[i];
+      h.t += dt;
+      const q = h.t / h.dur;
+      if (q >= 1) {
+        this._parent.remove(h.sp);
+        this._hearts.splice(i, 1);
+        this._heartPool.push(h);
+        continue;
+      }
+      h.y += h.vy * dt * (1 - q * 0.55);
+      h.sp.position.set(h.x + Math.sin(h.t * 5 + h.ph) * 0.07, h.y, h.z);
+      const sc = h.s * Math.min(1, h.t / 0.14);
+      h.sp.scale.set(sc, sc, 1);
+      h.sp.material.opacity = q > 0.62 ? 1 - (q - 0.62) / 0.38 : 1;
+    }
+  }
+
+  // ハートを n 個まきあげる(ペングループのローカル座標)。連打対策で同時24個まで
+  burstHearts(x, y, z, n) {
+    for (let i = 0; i < n && this._hearts.length < 24; i++) {
+      let h = this._heartPool.pop();
+      if (!h) {
+        const mat = new THREE.SpriteMaterial({ map: heartTexture(), transparent: true, depthTest: false });
+        const sp = new THREE.Sprite(mat);
+        sp.renderOrder = 7;
+        h = { sp };
+      }
+      h.t = 0;
+      h.dur = 0.9 + Math.random() * 0.35;
+      h.x = x + rand(-0.2, 0.2);
+      h.y = y + rand(0, 0.12);
+      h.z = z + rand(-0.12, 0.12);
+      h.vy = 0.85 + Math.random() * 0.3;
+      h.ph = Math.random() * 6.28;
+      h.s = 0.2 + Math.random() * 0.14;
+      h.sp.position.set(h.x, h.y, h.z);
+      h.sp.scale.set(0.001, 0.001, 1);
+      h.sp.material.opacity = 1;
+      this._parent.add(h.sp);
+      this._hearts.push(h);
+    }
+  }
+
+  // なでタップ判定。ray=ワールド座標のTHREE.Ray、playerPos=プレイヤーのワールド座標(向く先)。
+  // 当たったら喜びリアクションを起こし {kind, x, z}(ワールド) を返す。外れなら null。
+  petAt(ray, playerPos) {
+    this._parent.getWorldPosition(_PET_GP);
+    let best = null, bd = Infinity;
+    for (const a of this.animals) {
+      const p = a.p.root.position;
+      _PET_SPHERE.center.set(_PET_GP.x + p.x, p.y + a.spec.hit[0], _PET_GP.z + p.z);
+      _PET_SPHERE.radius = a.spec.hit[1];
+      if (ray.intersectSphere(_PET_SPHERE, _PET_HIT)) {
+        const d = _PET_HIT.distanceTo(ray.origin);
+        if (d < bd) { bd = d; best = a; }
+      }
+    }
+    if (!best) return null;
+    this._love(best, playerPos ? { x: playerPos.x - _PET_GP.x, z: playerPos.z - _PET_GP.z } : null);
+    const bp = best.p.root.position;
+    return { kind: best.kind, x: _PET_GP.x + bp.x, z: _PET_GP.z + bp.z };
+  }
+
+  // 喜びリアクション開始。ベール/岩の上・乗り降り・跳躍中は位置が壊れるので「ハートだけ」
+  // (寝ている猫をなでるとハートが出る=そのままでもかわいい)。それ以外はloveステートへ。
+  _love(a, playerLocal) {
+    const p = a.p.root.position;
+    this.burstHearts(p.x, p.y + a.spec.hit[0] + a.spec.hit[1] + 0.1, p.z, 4);
+    const delicate = a.hop || p.y > 0.05 ||
+      a.phase === 'napSit' || a.phase === 'sleep' || a.phase === 'wakeSit' || a.phase === 'stand';
+    if (delicate) return;
+    a.state = 'love'; a.t = 0; a.dur = 1.5; a.phase = null; a.tgt = null;
+    a.love1 = false; a.love2 = false;
+    a.headPitchTgt = 0; a.bodyPitchTgt = 0;
+    a.moving = false;
+    a.loveFace = playerLocal ? Math.atan2(playerLocal.x - p.x, playerLocal.z - p.z) : null;
   }
 }
