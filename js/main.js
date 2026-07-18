@@ -408,7 +408,7 @@ let pinch = null;                         // 2本指ピンチ中: { startDist, s
 
 // カメラズーム倍率(CAM_OFFの距離をこの倍率でスケール。1=既定 / <1=寄る / >1=引く)。
 let camZoom = 1;
-const ZOOM_MIN = 0.55, ZOOM_MAX = 2.0;
+const ZOOM_MIN = 0.35, ZOOM_MAX = 2.0;
 const clampZoom = z => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
 function pinchDist() { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); }
 
