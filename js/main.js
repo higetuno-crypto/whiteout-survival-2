@@ -116,6 +116,8 @@ const npcCtx = { world, buildMgr, shopSystem, eco };
 const ui = new UI(eco, {
   onUpgrade: key => { if (eco.buyUpgrade(key)) ui.toast('強化した!'); },
   onSave: () => { if (saveNow()) ui.toast('セーブしました'); },
+  // リセット: 自動保存を止めてからセーブ消去→リロード(リロード直前の復活を防ぐ。デバッグ消去と同手順)。
+  onReset: () => { saveEnabled = false; localStorage.removeItem(SAVE_KEY); location.reload(); },
 });
 // 破損セーブ検出時の通知(UI生成後=toastが動くようになってから)
 if (corrupted) ui.toast('セーブデータが壊れていたため退避して新しく始めます');

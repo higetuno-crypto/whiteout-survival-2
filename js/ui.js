@@ -48,13 +48,8 @@ export class UI {
       this.upgButtons[key] = b;
     }
 
-    // ---- 💾 手動セーブボタン(#upgrades の一番下) ----
-    this.saveButton = document.createElement('button');
-    this.saveButton.className = 'upg';
-    this.saveButton.style.background = 'linear-gradient(135deg,#7a8aa0,#54637a)';
-    this.saveButton.textContent = '💾 セーブ';
-    this.saveButton.addEventListener('click', () => this.handlers.onSave?.());
-    up.appendChild(this.saveButton);
+    // ---- ☰ メニュー(左上): 💾セーブ / 🗑️リセット。誤タップ防止のため折りたたみ+リセットは確認付き ----
+    this._buildMenu();
 
     this.toastEl = document.getElementById('toast');
 
@@ -69,6 +64,80 @@ export class UI {
     this._hintText = '';
 
     this._refresh(); // 初期表示(💰 0)
+  }
+
+  // ☰ 左上メニュー: 折りたたみ式で 💾セーブ / 🗑️リセット を格納(誤タップ防止+視認性向上)。
+  // ボタン/メニューは pointerdown を止めてジョイスティック(body の pointerdown)を動かさない。
+  _buildMenu() {
+    const stop = e => e.stopPropagation();
+    // ハンバーガーボタン
+    const btn = document.createElement('button');
+    btn.textContent = '☰';
+    btn.setAttribute('aria-label', 'メニュー');
+    btn.style.cssText = 'position:fixed;top:12px;left:12px;z-index:31;width:46px;height:46px;border:none;' +
+      'border-radius:12px;background:rgba(60,66,80,.82);color:#fff;font-size:24px;line-height:1;cursor:pointer;' +
+      'display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+    btn.addEventListener('pointerdown', stop);
+    btn.addEventListener('click', e => { stop(e); this._toggleMenu(); });
+    document.body.appendChild(btn);
+    // ドロップダウン(初期は非表示)
+    const panel = document.createElement('div');
+    panel.style.cssText = 'position:fixed;top:66px;left:12px;z-index:31;display:none;flex-direction:column;gap:8px';
+    panel.addEventListener('pointerdown', stop);
+    const mkItem = (label, bg, onClick) => {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.style.cssText = `padding:11px 18px;min-width:150px;text-align:left;font-size:15px;font-weight:700;border:none;` +
+        `border-radius:12px;color:#fff;cursor:pointer;background:${bg};box-shadow:0 2px 8px rgba(0,0,0,.3)`;
+      b.addEventListener('click', e => { stop(e); this._closeMenu(); onClick(); });
+      return b;
+    };
+    panel.appendChild(mkItem('💾 セーブ', 'linear-gradient(135deg,#5aa0d8,#2f6fae)', () => this.handlers.onSave?.()));
+    panel.appendChild(mkItem('🗑️ リセット', 'linear-gradient(135deg,#e07a5a,#c0392b)', () => {
+      this.showConfirm('本当にリセットしてよろしいですか？', () => this.handlers.onReset?.(),
+        { yesLabel: 'リセットする', danger: true });
+    }));
+    document.body.appendChild(panel);
+    this._menuBtn = btn;
+    this._menuPanel = panel;
+    this._menuOpen = false;
+    // メニュー外をタップしたら閉じる(キャプチャ段階で拾い、開いている時だけ)
+    document.addEventListener('pointerdown', () => { if (this._menuOpen) this._closeMenu(); });
+  }
+
+  _toggleMenu() { this._menuOpen ? this._closeMenu() : this._openMenu(); }
+  _openMenu() { this._menuOpen = true; this._menuPanel.style.display = 'flex'; this._menuBtn.textContent = '✕'; }
+  _closeMenu() { this._menuOpen = false; this._menuPanel.style.display = 'none'; this._menuBtn.textContent = '☰'; }
+
+  // 汎用の確認ダイアログ(はい/いいえ)。onConfirm は「はい」で呼ぶ。破壊的操作は danger=赤。
+  showConfirm(message, onConfirm, { yesLabel = 'はい', noLabel = 'やめる', danger = false } = {}) {
+    if (this._confirmEl) return; // 二重表示防止
+    const backdrop = document.createElement('div');
+    backdrop.style.cssText = 'position:fixed;inset:0;z-index:50;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.4)';
+    backdrop.addEventListener('pointerdown', e => e.stopPropagation());
+    const box = document.createElement('div');
+    box.style.cssText = 'background:#fff;border-radius:18px;padding:22px 24px;display:flex;flex-direction:column;gap:14px;min-width:260px;max-width:86vw;box-shadow:0 8px 30px rgba(0,0,0,.4);text-align:center';
+    const msg = document.createElement('div');
+    msg.textContent = message;
+    msg.style.cssText = 'font-weight:800;font-size:17px;color:#243244;line-height:1.5';
+    box.appendChild(msg);
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:10px;justify-content:center';
+    const close = () => { if (this._confirmEl) { this._confirmEl.remove(); this._confirmEl = null; } };
+    const no = document.createElement('button');
+    no.textContent = noLabel;
+    no.style.cssText = 'flex:1;padding:12px 16px;font-size:15px;font-weight:700;border:none;border-radius:12px;color:#333;background:#e2e2e2;cursor:pointer';
+    no.addEventListener('click', close);
+    const yes = document.createElement('button');
+    yes.textContent = yesLabel;
+    yes.style.cssText = `flex:1;padding:12px 16px;font-size:15px;font-weight:700;border:none;border-radius:12px;color:#fff;cursor:pointer;background:${danger ? 'linear-gradient(135deg,#e0533a,#b5291b)' : 'linear-gradient(135deg,#4a9ede,#2a6ebe)'}`;
+    yes.addEventListener('click', () => { close(); onConfirm(); });
+    row.appendChild(no);
+    row.appendChild(yes);
+    box.appendChild(row);
+    backdrop.appendChild(box);
+    document.body.appendChild(backdrop);
+    this._confirmEl = backdrop;
   }
 
   // 目標ヒントの文言を更新(同文はスキップ。空文字で非表示)
