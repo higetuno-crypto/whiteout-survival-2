@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { lambert, mergeGeos, roundedRectShape } from './render.js';
 import { FACILITIES, AREAS, RESOURCES } from './data.js';
 import { createKindMesh } from './entities.js';
+import { RanchAnimals, RANCH_LAYOUT } from './animals.js';
 import { sfx } from './sfx.js';
 import { confetti } from './fx.js';
 
@@ -109,7 +110,10 @@ export class BuildSite {
     this.pendingGoods = 0;       // 未回収goods個数(最大5。セーブ対象外=リロードで消える表示のみの状態)
     this._goodsMeshes = [];
     this.goodsAnims = [];        // {mesh, t} easeOutBackで出現
-    this.goodsAnchor = new THREE.Vector3(this.x + 2.2, 0.3, this.z); // ペン脇のgoods置き場
+    // goods置き場(FB5: ペンが7×5.5mに拡張されたため柵の外・手前へ。main.jsは常にこのanchorを参照する)
+    this.goodsAnchor = facility.kind === 'ranchPen'
+      ? new THREE.Vector3(this.x + RANCH_LAYOUT.goods.x, 0.3, this.z + RANCH_LAYOUT.goods.z)
+      : new THREE.Vector3(this.x + 2.2, 0.3, this.z);
 
     // FB2: depot(倉庫)の在庫。stored が真実、piles は見た目。仲間(採取NPC)の納品先=ここ。
     // 4種を空間的に分けた「置き場(bay)」に積む(原木/生魚/焼き魚/小麦)。プレイヤーは各bayに近づくと
@@ -407,8 +411,10 @@ export class BuildSite {
 
   /* ============== T15 ranchPen: 給餌→3匹ごとにgoods1個(最大5未回収) ============== */
   // fromWorld=発射元(背中)。kind='rawFish'|'cookedFish'。給餌数を進め、3の倍数でgoods1個を出現させる。
+  // FB5: 餌はペン中央ではなく餌箱(trough)めがけて飛ぶ(見た目の着地先のみ変更。カウントは従来通り)。
   feedOne(fromWorld, kind) {
-    this.spawnItemFlight(kind, fromWorld, new THREE.Vector3(this.x, 0.5, this.z));
+    const to = new THREE.Vector3(this.x + RANCH_LAYOUT.trough.x, 0.55, this.z + RANCH_LAYOUT.trough.z);
+    this.spawnItemFlight(kind, fromWorld, to);
     this.fed++;
     if (this.fed % 3 === 0 && this.pendingGoods < 5) this._spawnGoods();
   }
@@ -624,15 +630,8 @@ export class BuildSite {
       if (p >= 1) { a.mesh.scale.setScalar(1); this.goodsAnims.splice(i, 1); }
     }
 
-    // T15 ranchPen: ペンギン2羽がゆっくりうろつく(泳ぐ魚=world.jsのlakeFishと同じ円運動)
-    if (this.extra.penguins) {
-      for (const pg of this.extra.penguins) {
-        pg.theta += pg.speed * dt;
-        pg.mesh.position.set(Math.cos(pg.theta) * pg.radius, 0, Math.sin(pg.theta) * pg.radius);
-        const vx = -Math.sin(pg.theta), vz = Math.cos(pg.theta);
-        pg.mesh.rotation.y = Math.atan2(vx, vz);
-      }
-    }
+    // FB5 ranchPen: 動物たちの行動AI(うろつき/草はみ/岩のぼり/お昼寝…はanimals.jsが担当)
+    if (this.extra.animals) this.extra.animals.update(dt);
   }
 
   _complete() {
@@ -881,54 +880,105 @@ export class BuildSite {
     return g;
   }
 
-  // 2頭身のミニペンギン(黒/白+オレンジのくちばし)。ranchPenのペンの中をうろつく。
-  _makePenguin() {
-    const g = new THREE.Group();
-    const black = lambert(0x1c1c22);
-    const white = lambert(0xf4f4f2);
-    const orange = lambert(0xe8912a);
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 6), black);
-    body.scale.set(0.85, 1.15, 0.85);
-    body.position.y = 0.24;
-    g.add(body);
-    const belly = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), white);
-    belly.scale.set(0.8, 1.0, 0.6);
-    belly.position.set(0, 0.2, 0.13);
-    g.add(belly);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 6), black);
-    head.position.y = 0.46;
-    g.add(head);
-    const beak = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.12, 6), orange);
-    beak.rotation.x = Math.PI / 2;
-    beak.position.set(0, 0.45, 0.15);
-    g.add(beak);
-    return g;
-  }
-
-  // T15牧場: 低い丸太柵の小型囲い + ペンギン2羽(円運動でうろつく。this.extra.penguinsに保持しupdateで動かす)
+  // FB5牧場: 横木2段の丸太柵(正面ゲート付き7×5.5m) + 餌箱/水飲み場/小屋/岩/干し草ロール + 動物たち。
+  // 柵と小物はマテリアル別にmergeGeosで結合(静的物は計8メッシュ程度)。動物はanimals.jsのRanchAnimalsが
+  // this.extra.animals として毎フレーム動く(かわいさの本体はそちら)。レイアウトはRANCH_LAYOUTで共有。
   _ranchPenMesh() {
+    const L = RANCH_LAYOUT;
     const g = new THREE.Group();
-    const shape = roundedRectShape(1.8, 1.8, 0.5);
-    // N=20だと支柱が疎らで遠目に建設中の白い点線枠(dashedRect)と見紛う。密度を上げて連続した柵に見せる。
-    const N = 34;
+    const posts = [], caps = [], dark = [], hay = [], hayD = [], snow = [];
+
+    // --- 柵: 角丸矩形に支柱を並べ、隣り合う支柱の間へ横木2段を渡す(正面+zの中央はゲート開口) ---
+    const shape = roundedRectShape(L.hw, L.hd, L.fenceR);
+    const N = 42;
     const pts = shape.getSpacedPoints(N);
-    const sides = [], caps = [];
+    const kept = [];
     for (let i = 0; i < N; i++) {
       const x = pts[i].x, z = -pts[i].y;
-      const h = 0.55, r = 0.1;
-      sides.push(new THREE.CylinderGeometry(r, r, h, 7, 1, true).translate(x, h / 2, z));
+      if (Math.hypot(x, z - L.hd) < L.gateHalf) { kept.push(null); continue; } // ゲート開口
+      const h = 0.72 + Math.sin(i * 12.9898) * Math.sin(i * 78.233) * 0.05;
+      const r = 0.075;
+      posts.push(new THREE.CylinderGeometry(r, r, h, 7, 1, true).translate(x, h / 2, z));
       caps.push(new THREE.CircleGeometry(r, 7).rotateX(-Math.PI / 2).translate(x, h, z));
+      kept.push([x, z]);
     }
-    g.add(new THREE.Mesh(mergeGeos(sides), lambert(0xc49a6c)));
-    g.add(new THREE.Mesh(mergeGeos(caps), lambert(0xf5e6c0)));
+    for (let i = 0; i < N; i++) {
+      const a = kept[i], b = kept[(i + 1) % N];
+      if (!a || !b) continue;
+      const dx = b[0] - a[0], dz = b[1] - a[1];
+      const len = Math.hypot(dx, dz);
+      const ry = Math.atan2(-dz, dx);
+      for (const y of [0.3, 0.54]) {
+        posts.push(new THREE.BoxGeometry(len + 0.08, 0.055, 0.055)
+          .rotateY(ry).translate((a[0] + b[0]) / 2, y, (a[1] + b[1]) / 2));
+      }
+    }
+    // ゲート両脇のちょっと立派な門柱
+    for (const sx of [-1, 1]) {
+      const x = sx * (L.gateHalf + 0.08);
+      posts.push(new THREE.CylinderGeometry(0.095, 0.095, 0.95, 7, 1, true).translate(x, 0.475, L.hd));
+      caps.push(new THREE.CircleGeometry(0.095, 7).rotateX(-Math.PI / 2).translate(x, 0.95, L.hd));
+    }
 
-    const penguins = [];
-    for (let i = 0; i < 2; i++) {
-      const mesh = this._makePenguin();
-      g.add(mesh);
-      penguins.push({ mesh, theta: (i / 2) * Math.PI * 2, radius: 0.7 + i * 0.3, speed: 0.5 + i * 0.15 });
+    // --- 餌箱(木枠+干し草の山。給餌フライトはここに着地する) ---
+    {
+      const { x, z } = L.trough;
+      dark.push(new THREE.BoxGeometry(1.15, 0.28, 0.06).translate(x, 0.17, z - 0.22));
+      dark.push(new THREE.BoxGeometry(1.15, 0.28, 0.06).translate(x, 0.17, z + 0.22));
+      dark.push(new THREE.BoxGeometry(0.06, 0.28, 0.5).translate(x - 0.545, 0.17, z));
+      dark.push(new THREE.BoxGeometry(0.06, 0.28, 0.5).translate(x + 0.545, 0.17, z));
+      hay.push(new THREE.SphereGeometry(0.24, 7, 5).scale(1.25, 0.5, 0.85).translate(x - 0.2, 0.28, z));
+      hay.push(new THREE.SphereGeometry(0.2, 7, 5).scale(1.2, 0.5, 0.8).translate(x + 0.24, 0.26, z));
     }
-    this.extra.penguins = penguins;
+    // --- 水飲み場(木枠+氷色の水面) ---
+    {
+      const { x, z } = L.water;
+      dark.push(new THREE.BoxGeometry(0.85, 0.24, 0.06).translate(x, 0.15, z - 0.2));
+      dark.push(new THREE.BoxGeometry(0.85, 0.24, 0.06).translate(x, 0.15, z + 0.2));
+      dark.push(new THREE.BoxGeometry(0.06, 0.24, 0.46).translate(x - 0.395, 0.15, z));
+      dark.push(new THREE.BoxGeometry(0.06, 0.24, 0.46).translate(x + 0.395, 0.15, z));
+      const ice = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.34).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0xbfe3f2 }));
+      ice.position.set(x, 0.21, z);
+      g.add(ice);
+    }
+    // --- 小屋(奥の左。開口が正面を向いた雪屋根の差し掛け+わらの床) ---
+    {
+      const { x, z } = L.shelter;
+      dark.push(new THREE.BoxGeometry(1.7, 0.85, 0.08).translate(x, 0.425, z - 0.55));
+      dark.push(new THREE.BoxGeometry(0.08, 0.8, 1.15).translate(x - 0.85, 0.4, z));
+      dark.push(new THREE.BoxGeometry(0.08, 0.8, 1.15).translate(x + 0.85, 0.4, z));
+      dark.push(new THREE.BoxGeometry(1.95, 0.07, 1.5).rotateX(0.14).translate(x, 0.95, z + 0.1));
+      snow.push(new THREE.BoxGeometry(1.98, 0.06, 1.52).rotateX(0.14).translate(x, 1.02, z + 0.1));
+      hay.push(new THREE.BoxGeometry(1.5, 0.06, 1.05).translate(x, 0.03, z + 0.05));
+    }
+    // --- ヤギの登る岩(平らな頂上+雪キャップ)。Icosahedronはnon-indexedでmergeGeos不可のため単独メッシュ ---
+    {
+      const { x, z } = L.rock;
+      const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(0.5, 0), lambert(0x9aa8b2));
+      rock.scale.set(1.25, 0.6, 1.05);
+      rock.rotation.y = 0.6;
+      rock.position.set(x, 0.28, z);
+      g.add(rock);
+      snow.push(new THREE.CylinderGeometry(0.3, 0.34, 0.06, 8).translate(x, 0.52, z));
+    }
+    // --- 干し草ロール(柵の外。横倒し=猫のベッド+奥に小さい縦置き) ---
+    {
+      const { x, z } = L.bale;
+      hay.push(new THREE.CylinderGeometry(0.32, 0.32, 0.78, 10).rotateZ(Math.PI / 2).translate(x, 0.32, z));
+      hayD.push(new THREE.CylinderGeometry(0.325, 0.325, 0.1, 10).rotateZ(Math.PI / 2).translate(x, 0.32, z));
+      hay.push(new THREE.CylinderGeometry(0.26, 0.26, 0.42, 9).translate(x + 0.85, 0.21, z - 0.9));
+    }
+
+    g.add(new THREE.Mesh(mergeGeos(posts), lambert(0xc49a6c)));
+    g.add(new THREE.Mesh(mergeGeos(caps), lambert(0xf5e6c0)));
+    g.add(new THREE.Mesh(mergeGeos(dark), lambert(0x8a5f38)));
+    g.add(new THREE.Mesh(mergeGeos(hay), lambert(0xe4c24e)));
+    g.add(new THREE.Mesh(mergeGeos(hayD), lambert(0xcaa93c)));
+    g.add(new THREE.Mesh(mergeGeos(snow), lambert(0xffffff)));
+
+    // --- 動物たち(ペンギン2・牛・ヤギ・柵の外に猫)。行動はBuildSite.updateから毎フレーム ---
+    this.extra.animals = new RanchAnimals(g);
     return g;
   }
 
