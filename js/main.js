@@ -399,17 +399,40 @@ const lookPos = player.root.position.clone().setY(1.2);
 camera.position.copy(player.root.position).add(CAM_OFF);
 camera.lookAt(lookPos);
 
-// ==== 入力(仮想ジョイスティック + WASD) ====
+// ==== 入力(仮想ジョイスティック + WASD + 2本指ピンチでカメラズーム) ====
 const input = { x: 0, z: 0 };            // -1..1 の移動方向(ワールドXZ)
 const keys = new Set();
-let touchOrigin = null, touchId = null;   // 最初のポインタのIDだけ追跡(マルチタッチで壊れない)
+let touchOrigin = null, touchId = null;   // ジョイスティックの指(1本目のポインタID)
+const pointers = new Map();               // pointerId -> {x, y}(全アクティブポインタ。ピンチ用)
+let pinch = null;                         // 2本指ピンチ中: { startDist, startZoom }
+
+// カメラズーム倍率(CAM_OFFの距離をこの倍率でスケール。1=既定 / <1=寄る / >1=引く)。
+let camZoom = 1;
+const ZOOM_MIN = 0.55, ZOOM_MAX = 2.0;
+const clampZoom = z => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
+function pinchDist() { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); }
+
 addEventListener('pointerdown', e => {
-  if (touchId !== null) return;                     // 既に操作中の指がある
-  if (e.target.closest && e.target.closest('button')) return;
-  touchId = e.pointerId;
-  touchOrigin = { x: e.clientX, y: e.clientY };
+  if (e.target.closest && e.target.closest('button')) return; // ボタン(メニュー等)は操作扱いしない
+  pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pointers.size >= 2) {
+    // 2本目でピンチ開始: ジョイスティックを中断し、指間距離と現ズームを基準化
+    pinch = { startDist: pinchDist(), startZoom: camZoom };
+    touchId = null; touchOrigin = null; input.x = 0; input.z = 0;
+  } else {
+    touchId = e.pointerId;
+    touchOrigin = { x: e.clientX, y: e.clientY };
+  }
 });
 addEventListener('pointermove', e => {
+  const p = pointers.get(e.pointerId);
+  if (p) { p.x = e.clientX; p.y = e.clientY; }
+  if (pinch && pointers.size >= 2) {
+    // 指を広げる(距離↑)=寄る(倍率↓) / 狭める(距離↓)=引く(倍率↑)。標準のピンチと同じ向き。
+    const d = pinchDist();
+    if (d > 4) camZoom = clampZoom(pinch.startZoom * (pinch.startDist / d));
+    return; // ピンチ中はジョイスティックを動かさない
+  }
   if (e.pointerId !== touchId || !touchOrigin) return;
   const dx = e.clientX - touchOrigin.x, dy = e.clientY - touchOrigin.y;
   const len = Math.hypot(dx, dy);
@@ -417,13 +440,16 @@ addEventListener('pointermove', e => {
   const c = Math.min(1, len / 60);
   input.x = dx / len * c; input.z = dy / len * c;   // 画面上=奥(-Z)なのでdyはそのまま+Z
 });
-function endTouch(e) {
-  if (e && e.pointerId !== undefined && e.pointerId !== touchId) return;
-  touchId = null; touchOrigin = null; input.x = 0; input.z = 0;
+function removePointer(e) {
+  if (e && e.pointerId !== undefined) pointers.delete(e.pointerId);
+  if (pointers.size < 2) pinch = null;              // 1本以下になったらピンチ解除
+  if (!e || e.pointerId === touchId) { touchId = null; touchOrigin = null; input.x = 0; input.z = 0; }
+  // ピンチ後に残った指は新ジョイスティック基点にしない(勝手に歩き出す誤動作防止)。次のpointerdownで取り直す。
 }
-addEventListener('pointerup', endTouch);
-addEventListener('pointercancel', endTouch);   // 通知バナー/コントロールセンター対策(iOS Safari)
-addEventListener('blur', () => { endTouch(); keys.clear(); });  // 画面外リリース対策(PC)。keysも消さないとWキー押下中のフォーカス喪失でkeyupを取り逃し歩き続ける
+addEventListener('pointerup', removePointer);
+addEventListener('pointercancel', removePointer);   // 通知バナー/コントロールセンター対策(iOS Safari)
+addEventListener('blur', () => { pointers.clear(); pinch = null; removePointer(null); keys.clear(); }); // 画面外リリース対策(PC)。keysも消さないとWキー押下中のフォーカス喪失で歩き続ける
+addEventListener('wheel', e => { camZoom = clampZoom(camZoom * (e.deltaY > 0 ? 1.1 : 0.9)); }, { passive: true }); // PC: ホイールでもズーム
 addEventListener('keydown', e => keys.add(e.key.toLowerCase()));
 addEventListener('keyup', e => keys.delete(e.key.toLowerCase()));
 let keyActive = false;
@@ -746,8 +772,8 @@ function step(dt) {
   if (shopSite?.completed && !shopSystem.attached) shopSystem.attachShop(shopSite);
   shopSystem.update(dt, player.root.position, carrier);
   ui.update(dt);
-  // カメラ追従(proto-a 608-612行と同じlerp)
-  _camTgt.copy(player.root.position).add(CAM_OFF);
+  // カメラ追従(proto-a 608-612行と同じlerp)。CAM_OFFをcamZoom倍してズームを反映(lerpで滑らかに寄る/引く)。
+  _camTgt.copy(player.root.position).addScaledVector(CAM_OFF, camZoom);
   camera.position.lerp(_camTgt, 1 - Math.exp(-3.5 * dt));
   _lookTgt.set(player.root.position.x, 1.2, player.root.position.z);
   lookPos.lerp(_lookTgt, 1 - Math.exp(-4 * dt));
@@ -772,6 +798,8 @@ if (DEBUG) {
     save,                                       // ロード時のスナップショット
     saveNow,                                    // 即時保存
     collectSave,                                // 現在状態のセーブオブジェクトを生成
+    get camZoom() { return camZoom; },          // カメラズーム倍率(検証プローブ用)
+    setZoom: z => { camZoom = clampZoom(z); },  // ズームを直接セット(検証用)
   };
   window.__game.cheat = {
     addResource: (k, n) => { eco.resources[k] += n; },   // 容量無視のチート(検証用)
